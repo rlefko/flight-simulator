@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Read the commit message
+commit_regex='^(🎯|✈️|🎮|🌍|🎨|⚡|🔧|📦|🧪|🐛|📝|♻️|🚀|🔊|🌤️|📊|💡|🔒|👥|📈|🚧|⬆️|⬇️|➕|➖|🔥|💚|✅|🚨|💄|♿|🌐|✏️|💩|⏪|🔀|📱|🥚|🙈|📸|⚗️|🔍|🏷️|🌱|🚩|🥅|💫|🗑️|🛂|🩹|🧐|⚰️|🧑‍💻|🏗️|🧱|👷|📄|💸|🍻) .{1,100}$'
+
+commit_message=$(cat "$1")
+
+if ! echo "$commit_message" | grep -qE "$commit_regex"; then
+    echo "❌ Invalid commit message format!"
+    echo ""
+    echo "Commit message must:"
+    echo "  1. Start with an emoji from the project's emoji guide"
+    echo "  2. Be followed by a space and descriptive message"
+    echo "  3. Be no longer than 100 characters"
+    echo ""
+    echo "Example: ✈️ Implement ground effect modeling"
+    echo ""
+    echo "Emoji guide:"
+    echo "  🎯 Planning and architecture"
+    echo "  ✈️ Flight mechanics"
+    echo "  🎮 Controls and input"
+    echo "  🌍 World and terrain"
+    echo "  🎨 Graphics and rendering"
+    echo "  ⚡ Performance optimizations"
+    echo "  🔧 Configuration and setup"
+    echo "  📦 Dependencies"
+    echo "  🧪 Testing"
+    echo "  🐛 Bug fixes"
+    echo "  📝 Documentation"
+    echo "  ♻️ Refactoring"
+    echo "  🚀 New features"
+    echo ""
+    exit 1
+fi
+
+echo "✅ Commit message format is valid!"

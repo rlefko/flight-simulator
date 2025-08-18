@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Build outputs
+dist/
+build/
+*.min.js
+*.min.css
+
+# Coverage
+coverage/
+*.lcov
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+tmp/
+temp/
+
+# Generated files
+*.generated.*
+
+# Configuration files that shouldn't be formatted
+tsconfig.json
+tsconfig.*.json
+
+# Assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.eot
+
+# Other
+.git/
+.husky/
+*.md

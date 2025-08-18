@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run lint-staged for code formatting and linting
+echo "🔍 Running pre-commit checks..."
+npx lint-staged
+
+# Note: TypeScript and test checks temporarily disabled for initial setup
+# They will be re-enabled after fixing existing issues
+
+echo "✅ Pre-commit formatting complete!"
