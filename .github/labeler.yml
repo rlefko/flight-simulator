@@ -1,0 +1,40 @@
+# Add labels to PRs based on changed files
+enhancement:
+  - changed-files:
+    - any-glob-to-any-file: 'src/**/*.ts'
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file: 
+      - '**/*.md'
+      - 'docs/**'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
+
+ci:
+  - changed-files:
+    - any-glob-to-any-file: '.github/**'
+
+physics:
+  - changed-files:
+    - any-glob-to-any-file: 'src/physics/**'
+
+rendering:
+  - changed-files:
+    - any-glob-to-any-file: 'src/rendering/**'
+
+world:
+  - changed-files:
+    - any-glob-to-any-file: 'src/world/**'
+
+controls:
+  - changed-files:
+    - any-glob-to-any-file: 'src/controls/**'
+
+aircraft:
+  - changed-files:
+    - any-glob-to-any-file: 'src/aircraft/**'
