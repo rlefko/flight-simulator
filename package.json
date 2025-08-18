@@ -30,6 +30,7 @@
     "@typescript-eslint/parser": "^8.39.1",
     "@vitest/ui": "^3.2.4",
     "eslint": "^9.33.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.2",
     "vitest": "^3.2.4"
