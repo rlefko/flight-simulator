@@ -14,6 +14,7 @@ interface TerrainMeshData {
 export class TerrainRenderer {
     private device: GPUDevice;
     private pipeline: GPURenderPipeline | null = null;
+    private shadowPipeline: GPURenderPipeline | null = null;
     private meshCache: Map<string, TerrainMeshData> = new Map();
     private uniformBuffer: GPUBuffer;
     private bindGroupLayout: GPUBindGroupLayout;
@@ -80,6 +81,80 @@ export class TerrainRenderer {
         });
 
         this.createPipeline();
+        this.createShadowPipeline();
+    }
+
+    private createShadowPipeline(): void {
+        // Create a simplified shader for shadow depth rendering
+        const shadowShaderModule = this.device.createShaderModule({
+            label: 'Terrain Shadow Shader Module',
+            code: `
+                struct Uniforms {
+                    mvpMatrix: mat4x4<f32>,
+                    modelMatrix: mat4x4<f32>,
+                    normalMatrix: mat4x4<f32>,
+                    cameraPosition: vec3<f32>,
+                    time: f32,
+                };
+                
+                @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+                
+                struct VertexInput {
+                    @location(0) position: vec3<f32>,
+                    @location(1) normal: vec3<f32>,
+                    @location(2) uv: vec2<f32>,
+                };
+                
+                @vertex
+                fn vs_shadow(input: VertexInput) -> @builtin(position) vec4<f32> {
+                    return uniforms.mvpMatrix * vec4<f32>(input.position, 1.0);
+                }
+                
+                // No fragment shader needed for depth-only rendering
+            `,
+        });
+
+        this.shadowPipeline = this.device.createRenderPipeline({
+            label: 'Terrain Shadow Pipeline',
+            layout: this.pipelineLayout,
+            vertex: {
+                module: shadowShaderModule,
+                entryPoint: 'vs_shadow',
+                buffers: [
+                    {
+                        arrayStride: 32, // 3 floats position + 3 floats normal + 2 floats uv
+                        attributes: [
+                            {
+                                format: 'float32x3',
+                                offset: 0,
+                                shaderLocation: 0, // position
+                            },
+                            {
+                                format: 'float32x3',
+                                offset: 12,
+                                shaderLocation: 1, // normal
+                            },
+                            {
+                                format: 'float32x2',
+                                offset: 24,
+                                shaderLocation: 2, // uv
+                            },
+                        ],
+                    },
+                ],
+            },
+            primitive: {
+                topology: 'triangle-list',
+                cullMode: 'back',
+                frontFace: 'ccw',
+            },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: 'less',
+                format: 'depth32float', // Match shadow map format
+            },
+            // No fragment stage for shadow depth rendering
+        });
     }
 
     private createPipeline(): void {
@@ -434,14 +509,20 @@ export class TerrainRenderer {
         tiles: TerrainTile[],
         camera: Camera,
         time: number,
-        shadowSystem?: ShadowSystem
+        shadowSystem?: ShadowSystem,
+        isShadowPass: boolean = false
     ): void {
-        if (!this.pipeline) {
-            console.error('TerrainRenderer: No pipeline available');
+        // Use shadow pipeline for shadow passes, regular pipeline for main rendering
+        const pipelineToUse = isShadowPass ? this.shadowPipeline : this.pipeline;
+
+        if (!pipelineToUse) {
+            console.error(
+                `TerrainRenderer: No ${isShadowPass ? 'shadow' : 'main'} pipeline available`
+            );
             return;
         }
 
-        renderPass.setPipeline(this.pipeline);
+        renderPass.setPipeline(pipelineToUse);
 
         const viewMatrix = camera.getViewMatrix();
         const projectionMatrix = camera.getProjectionMatrix();

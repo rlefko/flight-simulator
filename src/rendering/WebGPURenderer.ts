@@ -516,7 +516,9 @@ export class WebGPURenderer {
                                     shadowRenderPass,
                                     this.terrainTiles,
                                     this.camera,
-                                    performance.now() / 1000
+                                    performance.now() / 1000,
+                                    undefined, // No shadowSystem needed for shadow pass itself
+                                    true // isShadowPass = true
                                 );
                             }
                         );

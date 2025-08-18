@@ -32,6 +32,10 @@ export class ShaderManager {
         this.setupIncludeResolver();
     }
 
+    getShader(name: string): GPUShaderModule | undefined {
+        return this.shaderCache[name];
+    }
+
     private async loadBuiltinShaders(): Promise<void> {
         if (!this.device) throw new Error('Device not initialized');
 
