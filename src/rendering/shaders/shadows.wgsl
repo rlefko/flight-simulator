@@ -51,16 +51,31 @@ fn getLightMatrix(cascadeIndex: i32) -> mat4x4<f32> {
 }
 
 /**
- * Sample shadow map for specific cascade
+ * Sample all shadow maps and blend based on cascade index
+ * This avoids non-uniform control flow for texture sampling
  */
-fn sampleShadowMap(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
-    switch (cascadeIndex) {
-        case 0: { return textureSampleCompare(shadowMap0, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-        case 1: { return textureSampleCompare(shadowMap1, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-        case 2: { return textureSampleCompare(shadowMap2, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-        case 3: { return textureSampleCompare(shadowMap3, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-        default: { return 1.0; }
-    }
+fn sampleShadowMapUniform(lightSpacePos: vec3<f32>, cascadeWeights: vec4<f32>) -> f32 {
+    let shadow0 = textureSampleCompare(shadowMap0, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+    let shadow1 = textureSampleCompare(shadowMap1, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+    let shadow2 = textureSampleCompare(shadowMap2, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+    let shadow3 = textureSampleCompare(shadowMap3, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+    
+    // Use weights to select the appropriate cascade result
+    return shadow0 * cascadeWeights.x + 
+           shadow1 * cascadeWeights.y + 
+           shadow2 * cascadeWeights.z + 
+           shadow3 * cascadeWeights.w;
+}
+
+/**
+ * Calculate cascade weights based on cascade index
+ */
+fn getCascadeWeights(cascadeIndex: i32) -> vec4<f32> {
+    if (cascadeIndex == 0) { return vec4<f32>(1.0, 0.0, 0.0, 0.0); }
+    if (cascadeIndex == 1) { return vec4<f32>(0.0, 1.0, 0.0, 0.0); }
+    if (cascadeIndex == 2) { return vec4<f32>(0.0, 0.0, 1.0, 0.0); }
+    if (cascadeIndex == 3) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
+    return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 }
 
 /**
@@ -68,6 +83,7 @@ fn sampleShadowMap(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
  */
 fn calculateShadowPCF(cascadeIndex: i32, lightSpacePos: vec3<f32>, filterSize: f32) -> f32 {
     let texelSize = 1.0 / 2048.0; // Shadow map resolution
+    let cascadeWeights = getCascadeWeights(cascadeIndex);
     var shadowSum = 0.0;
     var sampleCount = 0.0;
     
@@ -76,7 +92,7 @@ fn calculateShadowPCF(cascadeIndex: i32, lightSpacePos: vec3<f32>, filterSize: f
         for (var y = -2; y <= 2; y++) {
             let offset = vec2<f32>(f32(x), f32(y)) * texelSize * filterSize;
             let samplePos = vec3<f32>(lightSpacePos.xy + offset, lightSpacePos.z);
-            shadowSum += sampleShadowMap(cascadeIndex, samplePos);
+            shadowSum += sampleShadowMapUniform(samplePos, cascadeWeights);
             sampleCount += 1.0;
         }
     }

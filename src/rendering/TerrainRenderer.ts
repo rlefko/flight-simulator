@@ -227,14 +227,24 @@ export class TerrainRenderer {
                 }
             }
             
+            fn getCascadeWeights(cascadeIndex: i32) -> vec4<f32> {
+                if (cascadeIndex == 0) { return vec4<f32>(1.0, 0.0, 0.0, 0.0); }
+                if (cascadeIndex == 1) { return vec4<f32>(0.0, 1.0, 0.0, 0.0); }
+                if (cascadeIndex == 2) { return vec4<f32>(0.0, 0.0, 1.0, 0.0); }
+                if (cascadeIndex == 3) { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }
+                return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            }
+            
             fn sampleShadowMap(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
-                switch (cascadeIndex) {
-                    case 0: { return textureSampleCompare(shadowMap0, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-                    case 1: { return textureSampleCompare(shadowMap1, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-                    case 2: { return textureSampleCompare(shadowMap2, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-                    case 3: { return textureSampleCompare(shadowMap3, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
-                    default: { return 1.0; }
-                }
+                // Sample all shadow maps to maintain uniform control flow
+                let shadow0 = textureSampleCompare(shadowMap0, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+                let shadow1 = textureSampleCompare(shadowMap1, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+                let shadow2 = textureSampleCompare(shadowMap2, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+                let shadow3 = textureSampleCompare(shadowMap3, shadowSampler, lightSpacePos.xy, lightSpacePos.z);
+                
+                // Use weights to select the appropriate cascade
+                let weights = getCascadeWeights(cascadeIndex);
+                return shadow0 * weights.x + shadow1 * weights.y + shadow2 * weights.z + shadow3 * weights.w;
             }
             
             fn calculateShadowPCF(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
