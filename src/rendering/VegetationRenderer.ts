@@ -537,7 +537,7 @@ export class VegetationRenderer {
                 cullMode: 'none', // Don't cull for billboards
             },
             depthStencil: {
-                format: 'depth24plus-stencil8',
+                format: 'depth24plus', // Match main render pass depth format
                 depthWriteEnabled: true,
                 depthCompare: 'less',
             },

@@ -484,10 +484,6 @@ export class WebGPURenderer {
                         this.createTestTriangle();
                     }
 
-                    const commandEncoder = this.device.createCommandEncoder({
-                        label: 'Main Render Command Encoder',
-                    });
-
                     // Ensure depth texture matches canvas size
                     if (
                         !this.depthTexture ||
@@ -497,7 +493,7 @@ export class WebGPURenderer {
                         this.createDepthTexture();
                     }
 
-                    // Render shadow maps first BEFORE main render pass (if performance allows)
+                    // Render shadow maps in a SEPARATE command encoder to avoid usage conflicts
                     const shouldRenderShadows =
                         this.performanceOptimizer?.shouldRenderShadows() ?? true;
                     if (
@@ -508,8 +504,14 @@ export class WebGPURenderer {
                     ) {
                         const shadowStartTime = performance.now();
                         this.shadowSystem.updateCascades(this.camera);
+
+                        // Create separate command encoder for shadow pass
+                        const shadowCommandEncoder = this.device.createCommandEncoder({
+                            label: 'Shadow Command Encoder',
+                        });
+
                         this.shadowSystem.renderShadowMaps(
-                            commandEncoder,
+                            shadowCommandEncoder,
                             (shadowRenderPass, cascadeIndex) => {
                                 // Render terrain to shadow map
                                 this.terrainRenderer!.render(
@@ -522,8 +524,18 @@ export class WebGPURenderer {
                                 );
                             }
                         );
+
+                        // Submit shadow command buffer first
+                        const shadowCommandBuffer = shadowCommandEncoder.finish();
+                        this.device.queue.submit([shadowCommandBuffer]);
+
                         this.renderStats.renderTime += performance.now() - shadowStartTime;
                     }
+
+                    // Now create the main command encoder for the main render pass
+                    const commandEncoder = this.device.createCommandEncoder({
+                        label: 'Main Render Command Encoder',
+                    });
 
                     // Update water system and render reflections BEFORE main render pass
                     if (this.waterSystem && this.waterRenderer) {
