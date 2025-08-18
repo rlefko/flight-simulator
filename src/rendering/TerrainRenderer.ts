@@ -266,27 +266,33 @@ export class TerrainRenderer {
             
             fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
                 let cascadeIndex = getShadowCascadeIndex(viewDepth);
-                if (cascadeIndex < 0) {
-                    return 1.0;
-                }
                 
-                let lightMatrix = getLightMatrix(cascadeIndex);
+                // Always calculate shadow, but use a mask to disable if outside cascade range
+                let validCascade = select(0.0, 1.0, cascadeIndex >= 0);
+                
+                // Use cascade 0 as fallback when invalid to avoid branching
+                let safeCascadeIndex = max(0, cascadeIndex);
+                
+                let lightMatrix = getLightMatrix(safeCascadeIndex);
                 let lightSpacePos4 = lightMatrix * vec4<f32>(worldPos, 1.0);
                 var lightSpacePos = lightSpacePos4.xyz / lightSpacePos4.w;
                 
                 lightSpacePos.x = lightSpacePos.x * 0.5 + 0.5;
                 lightSpacePos.y = lightSpacePos.y * -0.5 + 0.5;
                 
-                if (lightSpacePos.x < 0.0 || lightSpacePos.x > 1.0 || 
-                    lightSpacePos.y < 0.0 || lightSpacePos.y > 1.0 || 
-                    lightSpacePos.z < 0.0 || lightSpacePos.z > 1.0) {
-                    return 1.0;
-                }
+                // Check bounds without branching
+                let inBounds = select(0.0, 1.0,
+                    lightSpacePos.x >= 0.0 && lightSpacePos.x <= 1.0 && 
+                    lightSpacePos.y >= 0.0 && lightSpacePos.y <= 1.0 && 
+                    lightSpacePos.z >= 0.0 && lightSpacePos.z <= 1.0);
                 
                 let bias = shadowUniforms.shadowBias * (1.0 + (1.0 - abs(dot(normal, shadowUniforms.lightDirection))));
                 lightSpacePos.z -= bias;
                 
-                return calculateShadowPCF(cascadeIndex, lightSpacePos);
+                let shadow = calculateShadowPCF(safeCascadeIndex, lightSpacePos);
+                
+                // Return 1.0 (no shadow) if invalid cascade or out of bounds
+                return mix(1.0, shadow, validCascade * inBounds);
             }
             
             @fragment
@@ -568,14 +574,18 @@ export class TerrainRenderer {
         const light = shadowSystem.getLight();
         const cascades = shadowSystem.getCascades();
 
+        // Calculate required size: 4 matrices (64 floats) + cascade distances (4) + light data (8)
+        const totalFloats = 64 + 4 + 8; // 76 floats
+        const bufferSize = Math.ceil((totalFloats * 4) / 256) * 256; // Round up to 256 byte alignment
+
         const buffer = this.device.createBuffer({
             label: 'Terrain Shadow Uniforms',
-            size: 256, // 4 matrices + cascade distances + light data
+            size: bufferSize,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
         // Update buffer with shadow data
-        const uniformData = new Float32Array(64); // 256 bytes / 4 = 64 floats
+        const uniformData = new Float32Array(bufferSize / 4); // Convert bytes to float count
         let offset = 0;
 
         // Light matrices (16 floats each)
