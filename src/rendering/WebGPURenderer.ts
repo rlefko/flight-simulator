@@ -497,27 +497,7 @@ export class WebGPURenderer {
                         this.createDepthTexture();
                     }
 
-                    const renderPass = commandEncoder.beginRenderPass({
-                        label: 'Main Render Pass',
-                        colorAttachments: [
-                            {
-                                view: textureView,
-                                clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1.0 }, // Sky blue color
-                                loadOp: 'clear',
-                                storeOp: 'store',
-                            },
-                        ],
-                        depthStencilAttachment: this.depthTextureView
-                            ? {
-                                  view: this.depthTextureView,
-                                  depthClearValue: 1.0,
-                                  depthLoadOp: 'clear',
-                                  depthStoreOp: 'store',
-                              }
-                            : undefined,
-                    });
-
-                    // Render shadow maps first (if performance allows)
+                    // Render shadow maps first BEFORE main render pass (if performance allows)
                     const shouldRenderShadows =
                         this.performanceOptimizer?.shouldRenderShadows() ?? true;
                     if (
@@ -543,7 +523,7 @@ export class WebGPURenderer {
                         this.renderStats.renderTime += performance.now() - shadowStartTime;
                     }
 
-                    // Update water system
+                    // Update water system and render reflections BEFORE main render pass
                     if (this.waterSystem && this.waterRenderer) {
                         const waterStartTime = performance.now();
                         this.waterSystem.update(deltaTime, this.camera.getPosition());
@@ -575,6 +555,27 @@ export class WebGPURenderer {
                         }
                         this.renderStats.renderTime += performance.now() - waterStartTime;
                     }
+
+                    // NOW begin the main render pass after all pre-passes are complete
+                    const renderPass = commandEncoder.beginRenderPass({
+                        label: 'Main Render Pass',
+                        colorAttachments: [
+                            {
+                                view: textureView,
+                                clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1.0 }, // Sky blue color
+                                loadOp: 'clear',
+                                storeOp: 'store',
+                            },
+                        ],
+                        depthStencilAttachment: this.depthTextureView
+                            ? {
+                                  view: this.depthTextureView,
+                                  depthClearValue: 1.0,
+                                  depthLoadOp: 'clear',
+                                  depthStoreOp: 'store',
+                              }
+                            : undefined,
+                    });
 
                     // Render terrain if available
                     if (this.terrainRenderer && this.terrainTiles.length > 0) {
