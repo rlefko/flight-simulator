@@ -1,3 +1,5 @@
+import type { Matrix4 } from './Matrix4';
+
 export class Vector3 {
     constructor(
         public x: number = 0,
@@ -177,6 +179,22 @@ export class Vector3 {
         this.x = array[offset];
         this.y = array[offset + 1];
         this.z = array[offset + 2];
+        return this;
+    }
+
+    applyMatrix4(matrix: Matrix4): this {
+        // Matrix4 is expected to have an elements array in column-major order
+        const e = matrix.elements;
+        const x = this.x;
+        const y = this.y;
+        const z = this.z;
+
+        const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
+
+        this.x = (e[0] * x + e[4] * y + e[8] * z + e[12]) * w;
+        this.y = (e[1] * x + e[5] * y + e[9] * z + e[13]) * w;
+        this.z = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
+
         return this;
     }
 }
