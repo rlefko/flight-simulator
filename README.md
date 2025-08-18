@@ -52,8 +52,8 @@ A high-performance, browser-based flight simulator built with WebGPU, featuring 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/flight-sim.git
-cd flight-sim
+git clone https://github.com/rlefko/flight-simulator.git
+cd flight-simulator
 
 # Install dependencies
 npm install
@@ -110,7 +110,7 @@ npm run preview
 ### Project Structure
 
 ```
-flight-sim/
+flight-simulator/
 ├── src/
 │   ├── core/           # Engine core, math, events
 │   ├── physics/        # Flight dynamics simulation
@@ -241,7 +241,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-For bug reports and feature requests, please use the [GitHub Issues](https://github.com/yourusername/flight-sim/issues) page.
+For bug reports and feature requests, please use the [GitHub Issues](https://github.com/rlefko/flight-simulator/issues) page.
 
 For questions and discussions, join our [Discord Server](https://discord.gg/yourinvite).
 
@@ -249,7 +249,7 @@ For questions and discussions, join our [Discord Server](https://discord.gg/your
 
 **Ryan Lefkowitz**
 - Email: rlefkowitz1800@yahoo.com
-- GitHub: [@yourusername](https://github.com/yourusername)
+- GitHub: [@rlefko](https://github.com/rlefko)
 
 ---
 
