@@ -414,6 +414,10 @@ export class Engine {
                 }
             }
             (this.renderer as any).setTerrainTiles?.(terrainTiles);
+
+            // Update vegetation data for renderer
+            const vegetationPlacements = this.world.getVegetationPlacements();
+            (this.renderer as any).setVegetationPlacements?.(vegetationPlacements);
         }
 
         // Render the frame

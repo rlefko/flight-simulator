@@ -19,6 +19,9 @@ export * from './TerrainStreaming';
 // Scenery and object placement
 export * from './SceneryManager';
 
+// Vegetation system
+export * from './VegetationSystem';
+
 // Water and ocean simulation
 export * from './WaterSystem';
 
@@ -26,6 +29,8 @@ export * from './WaterSystem';
 import { TerrainGenerator } from './TerrainGenerator';
 import { SceneryManager } from './SceneryManager';
 import { WaterSystem } from './WaterSystem';
+import { VegetationSystem } from './VegetationSystem';
+import type { VegetationPlacement } from './VegetationSystem';
 import { Vector3 } from '../core/math';
 import type { Frustum } from './TerrainGenerator';
 
@@ -36,14 +41,17 @@ export class WorldManager {
     private terrainGenerator: TerrainGenerator;
     private sceneryManager: SceneryManager;
     private waterSystem: WaterSystem;
+    private vegetationSystem: VegetationSystem;
 
     private isInitialized: boolean = false;
     private currentCameraPosition: Vector3 = new Vector3();
+    private vegetationPlacements: Map<string, VegetationPlacement> = new Map();
 
     constructor(config?: any) {
         this.terrainGenerator = new TerrainGenerator(config?.terrain);
         this.sceneryManager = new SceneryManager();
         this.waterSystem = new WaterSystem();
+        this.vegetationSystem = new VegetationSystem(config?.vegetation?.seed || 12345);
     }
 
     /**
@@ -97,6 +105,21 @@ export class WorldManager {
         // Extract and update water from terrain
         const renderableTiles = this.terrainGenerator.getRenderableTiles();
 
+        // Generate vegetation for new terrain tiles
+        for (const tile of renderableTiles) {
+            if (!this.vegetationPlacements.has(tile.id)) {
+                console.log('WorldManager: Generating vegetation for tile', tile.id);
+                const placement = this.vegetationSystem.generateVegetationForTile(tile);
+                this.vegetationPlacements.set(tile.id, placement);
+            }
+        }
+
+        // Update vegetation LOD based on camera position
+        this.vegetationSystem.updateVegetationLOD(cameraPosition, 10000); // 10km view distance
+
+        // Clean up vegetation for tiles that are no longer visible
+        this.cleanupVegetation(visibleTiles);
+
         // SKIP WATER FOR NOW
         /*
         this.waterSystem.extractWaterFromTerrain(renderableTiles);
@@ -135,6 +158,27 @@ export class WorldManager {
     }
 
     /**
+     * Get vegetation placements for rendering
+     */
+    public getVegetationPlacements(): Map<string, VegetationPlacement> {
+        return this.vegetationPlacements;
+    }
+
+    /**
+     * Get visible vegetation instances
+     */
+    public getVisibleVegetation(maxDistance: number = 10000) {
+        return this.vegetationSystem.getVisibleVegetation(maxDistance);
+    }
+
+    /**
+     * Get vegetation system reference
+     */
+    public getVegetationSystem(): VegetationSystem {
+        return this.vegetationSystem;
+    }
+
+    /**
      * Get height at world coordinates
      */
     public getHeightAt(x: number, z: number): number {
@@ -164,6 +208,7 @@ export class WorldManager {
             streaming: this.terrainGenerator.getStreamingStats(),
             scenery: this.sceneryManager.getStats(),
             water: this.waterSystem.getStats(),
+            vegetation: this.vegetationSystem.getStats(),
         };
     }
 
@@ -184,6 +229,23 @@ export class WorldManager {
         this.terrainGenerator.clearTerrain();
         this.sceneryManager.dispose();
         this.waterSystem.clear();
+        this.vegetationSystem.clearAll();
+        this.vegetationPlacements.clear();
+    }
+
+    /**
+     * Clean up vegetation for tiles that are no longer visible
+     */
+    private cleanupVegetation(visibleTiles: any[]): void {
+        const visibleTileIds = new Set(visibleTiles.map((tile) => tile.id));
+
+        // Remove vegetation placements for tiles that are no longer visible
+        for (const [tileId, _] of this.vegetationPlacements) {
+            if (!visibleTileIds.has(tileId)) {
+                this.vegetationSystem.clearVegetationForTile(tileId);
+                this.vegetationPlacements.delete(tileId);
+            }
+        }
     }
 
     /**

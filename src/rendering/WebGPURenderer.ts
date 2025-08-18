@@ -11,6 +11,8 @@ import { ShadowSystem } from './ShadowSystem';
 import { WaterRenderer } from './WaterRenderer';
 import { WaterSystem } from '../world/WaterSystem';
 import { PerformanceOptimizer } from './PerformanceOptimizer';
+import { VegetationRenderer } from './VegetationRenderer';
+import type { VegetationPlacement } from '../world/VegetationSystem';
 
 export interface WebGPURenderingCapabilities {
     maxTextureSize: number;
@@ -82,12 +84,14 @@ export class WebGPURenderer {
     private depthTexture: GPUTexture | null = null;
     private depthTextureView: GPUTextureView | null = null;
     private terrainTiles: TerrainTile[] = [];
+    private vegetationPlacements: Map<string, VegetationPlacement> = new Map();
 
     // Advanced rendering systems
     private shadowSystem: ShadowSystem | null = null;
     private waterRenderer: WaterRenderer | null = null;
     private waterSystem: WaterSystem | null = null;
     private performanceOptimizer: PerformanceOptimizer | null = null;
+    private vegetationRenderer: VegetationRenderer | null = null;
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;
@@ -290,6 +294,10 @@ export class WebGPURenderer {
             waveSpeed: 1.0,
             shoreBlendDistance: 10.0,
         });
+
+        // Create vegetation renderer
+        this.vegetationRenderer = new VegetationRenderer(this.device, this.shaderManager);
+        await this.vegetationRenderer.initialize();
 
         // Create performance optimizer
         this.performanceOptimizer = new PerformanceOptimizer({
@@ -612,6 +620,29 @@ export class WebGPURenderer {
                                     performance.now() - waterRenderStartTime;
                             }
                         }
+
+                        // Render vegetation
+                        if (this.vegetationRenderer && this.eventBus) {
+                            const vegetationStartTime = performance.now();
+
+                            // Use stored vegetation placements
+                            if (this.vegetationPlacements.size > 0) {
+                                // Update vegetation renderer with current placements
+                                this.vegetationRenderer.updateBatches(this.vegetationPlacements);
+
+                                // Update camera uniforms
+                                const viewProjectionMatrix = this.camera.getViewProjectionMatrix();
+                                this.vegetationRenderer.updateCameraUniforms(viewProjectionMatrix);
+
+                                // Update wind simulation
+                                this.vegetationRenderer.updateWind(deltaTime);
+
+                                // Render all vegetation batches
+                                this.vegetationRenderer.render(renderPass);
+                            }
+
+                            this.renderStats.renderTime += performance.now() - vegetationStartTime;
+                        }
                     } else if (this.testPipeline && this.testTriangleBuffer) {
                         // Fallback to test triangle if no terrain
                         if (this.frameCount % 60 === 0) {
@@ -841,6 +872,26 @@ export class WebGPURenderer {
     }
 
     /**
+     * Set vegetation placements for rendering
+     */
+    public setVegetationPlacements(placements: Map<string, VegetationPlacement>): void {
+        this.vegetationPlacements = placements;
+        if (this.frameCount % 60 === 0 && placements.size > 0) {
+            let totalInstances = 0;
+            for (const placement of placements.values()) {
+                totalInstances += placement.instances.length;
+            }
+            console.log(
+                'WebGPURenderer.setVegetationPlacements: Received',
+                placements.size,
+                'tiles with',
+                totalInstances,
+                'vegetation instances'
+            );
+        }
+    }
+
+    /**
      * Get shadow system for external configuration
      */
     public getShadowSystem(): ShadowSystem | null {
@@ -852,6 +903,13 @@ export class WebGPURenderer {
      */
     public getWaterRenderer(): WaterRenderer | null {
         return this.waterRenderer;
+    }
+
+    /**
+     * Get vegetation renderer for external configuration
+     */
+    public getVegetationRenderer(): VegetationRenderer | null {
+        return this.vegetationRenderer;
     }
 
     /**
@@ -935,6 +993,11 @@ export class WebGPURenderer {
         if (this.waterRenderer) {
             this.waterRenderer.destroy();
             this.waterRenderer = null;
+        }
+
+        if (this.vegetationRenderer) {
+            this.vegetationRenderer.dispose();
+            this.vegetationRenderer = null;
         }
 
         if (this.waterSystem) {

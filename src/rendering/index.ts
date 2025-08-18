@@ -1,22 +1,18 @@
 // Main rendering system exports
 export { WebGPURenderer } from './WebGPURenderer';
-export type {
-    WebGPURenderingCapabilities,
-    QualitySettings,
-    RenderStats,
-} from './WebGPURenderer';
+export type { WebGPURenderingCapabilities, QualitySettings, RenderStats } from './WebGPURenderer';
 
 export { Camera, CameraMode } from './Camera';
-export type {
-    CameraConfiguration,
-    FlightCameraControls,
-    ViewFrustum,
-} from './Camera';
+export type { CameraConfiguration, FlightCameraControls, ViewFrustum } from './Camera';
 
 export { RenderLoop } from './RenderLoop';
 export type { FrameData } from './RenderLoop';
 
 export { WebGL2Fallback } from './WebGL2Fallback';
+
+// Vegetation rendering
+export { VegetationRenderer } from './VegetationRenderer';
+export type { VegetationBatch } from './VegetationRenderer';
 
 // Pipeline exports
 export { RenderPipeline } from './pipeline/RenderPipeline';
