@@ -128,7 +128,7 @@ export class HeightmapGenerator {
                 let amplitude = 1;
                 let frequency = 1;
 
-                // Combine multiple noise octaves
+                // Combine multiple noise octaves with proper amplitude scaling
                 for (const octave of octaves) {
                     const noiseValue = this.sampleNoise(
                         wx * octave.frequency,
@@ -136,7 +136,9 @@ export class HeightmapGenerator {
                         octave.type as NoiseType
                     );
 
-                    elevation += noiseValue * octave.amplitude;
+                    elevation += noiseValue * octave.amplitude * amplitude;
+                    amplitude *= 0.5; // Reduce amplitude for higher frequencies
+                    frequency *= 2; // Increase frequency
                 }
 
                 // Apply continental shelf effect
@@ -663,6 +665,22 @@ export class HeightmapGenerator {
         ];
     }
 
+    private getContinentalFactor(x: number, z: number): number {
+        // Simple continental shelf effect - higher near center, lower at edges
+        const centerX = 0;
+        const centerZ = 0;
+        const distance = Math.sqrt((x - centerX) * (x - centerX) + (z - centerZ) * (z - centerZ));
+        const continentalSize = 1000000; // 1000km
+
+        return Math.max(0, Math.min(1, 1 - distance / continentalSize));
+    }
+
+    private getLatitudeFactor(z: number): number {
+        // Elevation varies by latitude - higher at poles, lower at equator for ice caps
+        const latitude = Math.abs(z / 111320);
+        return 0.8 + 0.4 * Math.cos((latitude * Math.PI) / 180);
+    }
+
     private seededRandom(seed: number): () => number {
         return () => {
             seed = (seed * 9301 + 49297) % 233280;
@@ -688,16 +706,6 @@ export class HeightmapGenerator {
     private dot2D(gi: number, x: number, y: number): number {
         const gradient = this.gradients[gi % this.gradients.length];
         return gradient.x * x + gradient.z * y;
-    }
-
-    private getContinentalFactor(x: number, z: number): number {
-        // Simple continental shelf effect - for now just return 1 to avoid issues
-        return 1.0;
-    }
-
-    private getLatitudeFactor(z: number): number {
-        // For now, just return 1 to avoid issues
-        return 1.0;
     }
 
     private getHeightInterpolated(

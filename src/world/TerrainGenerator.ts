@@ -151,10 +151,10 @@ export class TerrainGenerator {
     constructor(config: Partial<TerrainConfig> = {}) {
         this.config = {
             seed: 12345,
-            maxLODLevels: TERRAIN_CONFIG.MAX_LOD_LEVELS,
+            maxLODLevels: 3, // Limit to 3 levels to prevent infinite subdivision
             viewDistance: LOD_CONFIG.CULL_DISTANCE,
             errorThreshold: 1.0,
-            enableFrustumCulling: false, // Disable frustum culling for debugging
+            enableFrustumCulling: false, // Disabled - was causing flickering
             enablePredictiveLoading: false, // Disabled to prevent excessive tile requests
             adaptiveLOD: false, // Use simple distance-based LOD for debugging
             ...config,
@@ -163,25 +163,45 @@ export class TerrainGenerator {
         this.heightmapGenerator = new HeightmapGenerator(this.config.seed);
         this.streaming = new TerrainStreaming(this.config.seed);
 
-        // Initialize root quadtree node
-        const rootTile = new TerrainTile(0, 0, 0);
-        this.quadTree = new QuadTreeNode(rootTile);
+        // Initialize with a grid of root tiles to cover more area
+        // Create a 5x5 grid of root tiles to ensure coverage
+        const gridSize = 5; // 5x5 grid
+        const centerOffset = Math.floor(gridSize / 2);
 
-        console.log(
-            'TerrainGenerator: Created root tile:',
-            rootTile.id,
-            'bounds:',
-            rootTile.worldBounds,
-            'center:',
-            rootTile.center.x,
-            rootTile.center.y,
-            rootTile.center.z
-        );
+        // Create a virtual root that holds our tile grid
+        const virtualRoot = new TerrainTile(0, 0, 0);
+        this.quadTree = new QuadTreeNode(virtualRoot);
+        this.quadTree.children = [];
+        this.quadTree.isLeaf = false;
 
-        // Force the root tile to be visible initially
-        rootTile.isVisible = true;
-        rootTile.distanceToCamera = 100; // Pretend it's close
+        // Create the grid of root tiles
+        for (let x = -centerOffset; x <= centerOffset; x++) {
+            for (let z = -centerOffset; z <= centerOffset; z++) {
+                const tile = new TerrainTile(x, z, 0);
+                const node = new QuadTreeNode(tile, this.quadTree);
+                this.quadTree.children.push(node);
 
+                // Log tile bounds to debug positioning
+                console.log(
+                    `Tile (${x},${z}) bounds: X[${tile.worldBounds.minX}, ${tile.worldBounds.maxX}] Z[${tile.worldBounds.minZ}, ${tile.worldBounds.maxZ}]`
+                );
+
+                // Update LOD properly with initial camera position
+                const initialCameraPos = new Vector3(4096, 500, 4096);
+                tile.updateLOD(initialCameraPos, null);
+                console.log(
+                    `Tile (${x},${z}) distance to camera: ${tile.distanceToCamera.toFixed(0)}`
+                );
+
+                // Request generation for all tiles in the initial grid
+                console.log('TerrainGenerator: Requesting tile generation for', tile.id);
+                this.streaming.requestTile(tile, TilePriority.IMMEDIATE, (loadedTile) => {
+                    console.log('Tile loaded:', loadedTile.id, 'state:', loadedTile.state);
+                });
+            }
+        }
+
+        console.log(`TerrainGenerator: Created ${gridSize}x${gridSize} grid of root tiles`);
         this.errorThreshold = this.config.errorThreshold;
     }
 
@@ -255,24 +275,7 @@ export class TerrainGenerator {
 
         // Debug logging
         if (this.currentFrame % 60 === 0 && readyTiles.length > 0) {
-            const firstTile = readyTiles[0];
-            console.log(
-                'First tile bounds:',
-                'X:',
-                firstTile.worldBounds.minX,
-                'to',
-                firstTile.worldBounds.maxX,
-                'Z:',
-                firstTile.worldBounds.minZ,
-                'to',
-                firstTile.worldBounds.maxZ
-            );
-            console.log(
-                'First tile center:',
-                firstTile.center.x,
-                firstTile.center.y,
-                firstTile.center.z
-            );
+            console.log('Renderable tiles:', readyTiles.length);
         }
 
         return readyTiles;
@@ -373,7 +376,14 @@ export class TerrainGenerator {
         const lodBudget = PERFORMANCE_CONFIG.TERRAIN_FRAME_BUDGET;
         const startTime = performance.now();
 
-        this.traverseAndUpdateLOD(this.quadTree, lodBudget, startTime);
+        // If we have a grid of tiles, traverse each one
+        if (this.quadTree.children) {
+            for (const child of this.quadTree.children) {
+                this.traverseAndUpdateLOD(child, lodBudget, startTime);
+            }
+        } else {
+            this.traverseAndUpdateLOD(this.quadTree, lodBudget, startTime);
+        }
     }
 
     private traverseAndUpdateLOD(node: QuadTreeNode, budget: number, startTime: number): void {
@@ -451,6 +461,14 @@ export class TerrainGenerator {
     }
 
     private shouldSubdivideTile(tile: TerrainTile): boolean {
+        // DISABLED SUBDIVISION TEMPORARILY
+        return false;
+
+        // Never subdivide beyond level 2 to prevent infinite subdivision
+        if (tile.level >= 2) {
+            return false;
+        }
+
         if (!this.config.adaptiveLOD) {
             // Use simple distance-based LOD
             const lodDistance = LOD_CONFIG.TERRAIN_DISTANCES[tile.level + 1] || Infinity;
@@ -515,6 +533,15 @@ export class TerrainGenerator {
     }
 
     private collectVisibleNodes(node: QuadTreeNode): void {
+        // Special handling for our virtual root that contains the grid
+        if (node === this.quadTree && node.children) {
+            // This is our virtual root, just recurse into children
+            node.children.forEach((child) => {
+                this.collectVisibleNodes(child);
+            });
+            return;
+        }
+
         const tile = node.tile;
 
         // Frustum culling

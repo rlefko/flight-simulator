@@ -555,6 +555,8 @@ export class TerrainStreaming {
         tile.setTerrainData(convertedData);
         tile.state = TerrainTileState.LOADED;
 
+        console.log('Terrain data set for tile:', tile.id, 'generating mesh...');
+
         // Generate mesh
         this.generateMeshAsync(tile);
 

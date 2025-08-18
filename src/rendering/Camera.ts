@@ -39,15 +39,17 @@ export enum CameraMode {
 
 export class Camera {
     // Core camera properties
-    private position = new Vector3(0, 500, 0); // Start higher and centered
-    private target = new Vector3(0, 0, 0); // Look down at origin
-    private up = new Vector3(0, 1, 0);
+    private position = new Vector3(4096, 500, 4096); // Center of tile (0,0)
+    private target = new Vector3(4096, 0, 4096); // Look at ground below
+    private up = new Vector3(0, 1, 0); // Y is up
     private forward = new Vector3(0, 0, -1);
     private right = new Vector3(1, 0, 0);
 
-    // Free camera rotation (initial yaw=0 faces negative Z, which is forward)
-    private yaw = 0; // Rotation around Y axis (left/right)
-    private pitch = -Math.PI / 4; // Looking down 45 degrees initially
+    // Free camera rotation
+    // In our coordinate system: yaw=0 means looking along +Z axis
+    // Yaw increases counterclockwise when viewed from above
+    private yaw = 0; // Start facing +Z
+    private pitch = -0.7; // Looking down more steeply to see terrain below
 
     // Matrices
     private viewMatrix = new Matrix4();
@@ -89,9 +91,9 @@ export class Camera {
 
     constructor(aspectRatio: number) {
         this.config = {
-            fov: 110 * DEG_TO_RAD, // Wide FOV for better terrain visibility
+            fov: 90 * DEG_TO_RAD, // 90 degree FOV as requested
             near: 1.0, // Increased to reduce z-fighting
-            far: 50000, // 50km is plenty for terrain viewing
+            far: 100000, // 100km view distance for terrain
             aspectRatio,
         };
 
@@ -199,14 +201,50 @@ export class Camera {
         // Apply shake to final position
         const shakenPosition = Vector3.add(this.position, this.shakeOffset);
 
-        // Update view vectors
-        this.forward = Vector3.subtract(this.target, shakenPosition).normalize();
-        this.right = Vector3.cross(this.forward, this.up).normalize();
-        this.up = Vector3.cross(this.right, this.forward).normalize();
+        // In free camera mode, we already have the correct forward/right/up vectors
+        // from updateFreeCameraVectors(), so don't recalculate them
+        if (this.mode !== CameraMode.FREE) {
+            // Update view vectors for other modes
+            this.forward = Vector3.subtract(this.target, shakenPosition).normalize();
+            this.right = Vector3.cross(this.forward, this.up).normalize();
+            this.up = Vector3.cross(this.right, this.forward).normalize();
+        }
 
-        // Build view matrix (lookAt)
+        // Build view matrix
         this.viewMatrix.identity();
-        this.viewMatrix.lookAt(shakenPosition, this.target, this.up);
+
+        if (this.mode === CameraMode.FREE) {
+            // Build view matrix directly from camera basis vectors
+            // This is the standard approach for FPS-style cameras
+            // View matrix = [Right, Up, -Forward]^T * Translation
+
+            const e = this.viewMatrix.elements;
+
+            // Set rotation part (transposed basis vectors)
+            e[0] = this.right.x;
+            e[1] = this.up.x;
+            e[2] = -this.forward.x; // Note: negative forward for right-handed coordinates
+            e[3] = 0;
+
+            e[4] = this.right.y;
+            e[5] = this.up.y;
+            e[6] = -this.forward.y;
+            e[7] = 0;
+
+            e[8] = this.right.z;
+            e[9] = this.up.z;
+            e[10] = -this.forward.z;
+            e[11] = 0;
+
+            // Set translation part (dot products with basis vectors)
+            e[12] = -this.right.dot(shakenPosition);
+            e[13] = -this.up.dot(shakenPosition);
+            e[14] = this.forward.dot(shakenPosition); // Positive because forward is already negated
+            e[15] = 1;
+        } else {
+            // For other modes, use the actual target
+            this.viewMatrix.lookAt(shakenPosition, this.target, this.up);
+        }
 
         // Build projection matrix
         this.projectionMatrix.identity();
@@ -531,55 +569,84 @@ export class Camera {
     }
 
     rotate(deltaYaw: number, deltaPitch: number): void {
-        // Add some sanity checks
-        if (!isFinite(deltaYaw) || !isFinite(deltaPitch)) {
-            console.warn('Invalid rotation values:', deltaYaw, deltaPitch);
-            return;
-        }
+        this.changeYaw(deltaYaw);
+        this.changePitch(deltaPitch);
+    }
 
-        this.yaw += deltaYaw;
-        this.pitch = clamp(this.pitch + deltaPitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+    // Legacy compatibility methods
+    moveForward(distance: number): void {
+        this.goForward(distance);
+    }
+
+    moveRight(distance: number): void {
+        this.strafe(-distance); // Negative because strafe goes left with positive
+    }
+
+    moveUp(distance: number): void {
+        this.changeAltitude(distance);
+    }
+
+    // Movement methods matching C++ camera style
+    goForward(distance: number): void {
+        // Calculate forward direction from yaw only (ignore pitch for horizontal movement)
+        // This keeps movement on the XZ plane
+        const xDirection = Math.sin(this.yaw);
+        const zDirection = Math.cos(this.yaw);
+        const viewDirection = new Vector3(xDirection, 0, zDirection);
+        this.position.add(viewDirection.multiplyScalar(distance));
+    }
+
+    strafe(distance: number): void {
+        // Strafe uses the right vector we already calculated
+        // In C++: strafeAxis = cross(viewDirection, Vec3(0, 1, 0))
+        // But we already have this as our 'right' vector
+        this.position.add(this.right.clone().multiplyScalar(distance));
+    }
+
+    changeAltitude(distance: number): void {
+        this.position.y += distance;
+    }
+
+    changeYaw(delta: number): void {
+        // Yaw is always rotation around world Y axis, independent of pitch
+        this.yaw += delta;
+        // Normalize yaw to [0, 2π]
+        while (this.yaw < 0) this.yaw += 2 * Math.PI;
+        while (this.yaw >= 2 * Math.PI) this.yaw -= 2 * Math.PI;
         this.updateFreeCameraVectors();
         this.isDirty = true;
     }
 
-    moveForward(distance: number): void {
-        // Move only on XZ plane based on yaw
-        const moveDir = new Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-        this.position.add(moveDir.multiplyScalar(distance));
-    }
-
-    moveRight(distance: number): void {
-        // Move perpendicular to forward on XZ plane
-        const moveDir = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-        this.position.add(moveDir.multiplyScalar(distance));
-    }
-
-    moveUp(distance: number): void {
-        this.position.y += distance;
+    changePitch(delta: number): void {
+        this.pitch += delta;
+        // Clamp pitch to prevent flipping (with small padding like in C++)
+        const padding = 0.05;
+        this.pitch = clamp(this.pitch, -Math.PI / 2 + padding, Math.PI / 2 - padding);
+        this.updateFreeCameraVectors();
+        this.isDirty = true;
     }
 
     private updateFreeCameraVectors(): void {
-        // Calculate forward vector from yaw and pitch
+        // Calculate forward vector from yaw and pitch (matching C++ exactly)
         this.forward
             .set(
-                -Math.sin(this.yaw) * Math.cos(this.pitch),
+                Math.sin(this.yaw) * Math.cos(this.pitch),
                 Math.sin(this.pitch),
-                -Math.cos(this.yaw) * Math.cos(this.pitch)
+                Math.cos(this.yaw) * Math.cos(this.pitch)
             )
             .normalize();
 
-        // Right vector is perpendicular to forward and world up
-        this.right
-            .copy(this.forward)
-            .cross(new Vector3(0, 1, 0))
-            .normalize();
+        // Right vector is cross product of forward and world up
+        // In a right-handed coordinate system: right = forward × up
+        const worldUp = new Vector3(0, 1, 0);
+        this.right = Vector3.cross(this.forward, worldUp).normalize();
 
-        // Recalculate up vector
-        this.up.copy(this.right).cross(this.forward).normalize();
+        // Up vector from right cross forward
+        // This ensures orthogonality even when looking up/down
+        this.up = Vector3.cross(this.right, this.forward).normalize();
 
-        // Update target based on forward direction
-        this.target.copy(this.position).add(this.forward);
+        // Mark as dirty to update matrices
+        this.isDirty = true;
     }
 
     setFreeCamera(): void {

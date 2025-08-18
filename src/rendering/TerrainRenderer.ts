@@ -7,6 +7,7 @@ interface TerrainMeshData {
     indexBuffer: GPUBuffer;
     indexCount: number;
     bindGroup: GPUBindGroup;
+    uniformBuffer: GPUBuffer; // Each mesh needs its own uniform buffer
 }
 
 export class TerrainRenderer {
@@ -93,42 +94,24 @@ export class TerrainRenderer {
                 
                 @fragment
                 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                    // Simple height-based coloring for now
-                    let minHeight = -100.0;
-                    let maxHeight = 500.0;
-                    let normalizedHeight = clamp((input.height - minHeight) / (maxHeight - minHeight), 0.0, 1.0);
+                    // Simple green color for debugging - make terrain always visible
+                    var color = vec3<f32>(0.2, 0.6, 0.2); // Green
                     
-                    // Terrain color gradient
-                    var color: vec3<f32>;
-                    if (normalizedHeight < 0.2) {
-                        // Water/Beach (blue to sand)
-                        let t = normalizedHeight / 0.2;
-                        color = mix(vec3<f32>(0.1, 0.3, 0.6), vec3<f32>(0.9, 0.8, 0.6), t);
-                    } else if (normalizedHeight < 0.5) {
-                        // Grass (sand to green)
-                        let t = (normalizedHeight - 0.2) / 0.3;
-                        color = mix(vec3<f32>(0.9, 0.8, 0.6), vec3<f32>(0.2, 0.6, 0.2), t);
-                    } else if (normalizedHeight < 0.8) {
-                        // Forest (green to brown)
-                        let t = (normalizedHeight - 0.5) / 0.3;
-                        color = mix(vec3<f32>(0.2, 0.6, 0.2), vec3<f32>(0.4, 0.3, 0.2), t);
-                    } else {
-                        // Snow (brown to white)
-                        let t = (normalizedHeight - 0.8) / 0.2;
-                        color = mix(vec3<f32>(0.4, 0.3, 0.2), vec3<f32>(0.95, 0.95, 1.0), t);
-                    }
+                    // Add some height variation for visibility
+                    let heightFactor = clamp(input.worldPos.y / 500.0, 0.0, 1.0);
+                    color = mix(vec3<f32>(0.1, 0.4, 0.1), vec3<f32>(0.4, 0.8, 0.4), heightFactor);
                     
                     // Simple lighting
                     let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.3));
                     let NdotL = max(dot(input.normal, lightDir), 0.0);
-                    let ambient = 0.3;
-                    let diffuse = 0.7 * NdotL;
+                    let ambient = 0.4;
+                    let diffuse = 0.6 * NdotL;
                     let lighting = ambient + diffuse;
                     
                     // Apply fog based on distance
                     let distance = length(uniforms.cameraPosition - input.worldPos);
-                    let fogStart = 5000.0;
-                    let fogEnd = 20000.0;
+                    let fogStart = 10000.0;  // 10km
+                    let fogEnd = 50000.0;    // 50km
                     let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
                     let fogColor = vec3<f32>(0.7, 0.8, 0.9);
                     
@@ -238,7 +221,14 @@ export class TerrainRenderer {
 
         this.device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
 
-        // Create bind group for this tile
+        // Create a unique uniform buffer for this tile
+        const uniformBuffer = this.device.createBuffer({
+            label: `Terrain Uniform Buffer ${tile.id}`,
+            size: 256, // Same size as the shared uniform buffer
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        // Create bind group for this tile with its own uniform buffer
         const bindGroup = this.device.createBindGroup({
             label: `Terrain Bind Group ${tile.id}`,
             layout: this.bindGroupLayout,
@@ -246,7 +236,7 @@ export class TerrainRenderer {
                 {
                     binding: 0,
                     resource: {
-                        buffer: this.uniformBuffer,
+                        buffer: uniformBuffer,
                     },
                 },
             ],
@@ -257,6 +247,7 @@ export class TerrainRenderer {
             indexBuffer,
             indexCount: meshData.indices.length,
             bindGroup,
+            uniformBuffer, // Store the uniform buffer with the mesh data
         };
 
         this.meshCache.set(tile.id, terrainMeshData);
@@ -303,7 +294,7 @@ export class TerrainRenderer {
             // Calculate normal matrix
             const normalMatrix = modelMatrix.clone().invert().transpose();
 
-            // Update uniform buffer
+            // Update the tile's own uniform buffer
             // Total: 16 + 16 + 16 + 3 + 1 = 52 floats = 208 bytes
             const uniformData = new Float32Array(52);
             uniformData.set(mvpMatrix.elements, 0); // 16 floats at offset 0
@@ -312,7 +303,7 @@ export class TerrainRenderer {
             uniformData.set([cameraPosition.x, cameraPosition.y, cameraPosition.z], 48); // 3 floats at offset 48
             uniformData[51] = time; // 1 float at offset 51
 
-            this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+            this.device.queue.writeBuffer(meshData.uniformBuffer, 0, uniformData);
 
             // Set bind group and draw
             renderPass.setBindGroup(0, meshData.bindGroup);
@@ -331,6 +322,7 @@ export class TerrainRenderer {
         for (const meshData of this.meshCache.values()) {
             meshData.vertexBuffer.destroy();
             meshData.indexBuffer.destroy();
+            meshData.uniformBuffer.destroy(); // Destroy each tile's uniform buffer
         }
         this.meshCache.clear();
     }

@@ -417,7 +417,8 @@ export class Matrix4 {
 
     makePerspective(fov: number, aspect: number, near: number, far: number): this {
         const e = this.elements;
-        const top = near * Math.tan((fov * Math.PI) / 360);
+        // FOV is already in radians, so just divide by 2 for half angle
+        const top = near * Math.tan(fov / 2);
         const height = 2 * top;
         const width = aspect * height;
         const left = -0.5 * width;

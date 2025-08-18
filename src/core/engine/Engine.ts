@@ -298,60 +298,63 @@ export class Engine {
                 // Clamp deltaTime to prevent huge jumps
                 const clampedDeltaTime = Math.min(deltaTime, 0.1);
 
-                // Dynamic movement speed - can be adjusted
-                const baseSpeed = 200; // Base units per second
+                // Dynamic movement speed - adjusted for terrain scale
+                const baseSpeed = 100; // Reasonable speed for 8km tiles
                 const moveSpeed = baseSpeed * clampedDeltaTime;
-                const rotateSpeed = 30.0 * clampedDeltaTime; // 30 degrees per second
+                const rotateSpeed = 60.0 * clampedDeltaTime; // 60 degrees per second
 
                 const inputState = this.input.getInputState();
 
-                // Movement controls (WASD + Space/Shift)
+                // Movement controls matching C++ camera style
+                // Scale movement for terrain scale
+                const movementScale = 1.0; // Normal scale for 8km tiles
+
+                // W/S for forward/backward
                 if (inputState.keys.has('KeyW')) {
-                    camera.moveForward(moveSpeed);
+                    camera.goForward(moveSpeed * movementScale);
                 }
                 if (inputState.keys.has('KeyS')) {
-                    camera.moveForward(-moveSpeed);
+                    camera.goForward(-moveSpeed * movementScale);
                 }
+                // A/D for strafe left/right (swapped)
                 if (inputState.keys.has('KeyA')) {
-                    camera.moveRight(-moveSpeed);
+                    camera.strafe(-moveSpeed * movementScale); // Now goes left
                 }
                 if (inputState.keys.has('KeyD')) {
-                    camera.moveRight(moveSpeed);
+                    camera.strafe(moveSpeed * movementScale); // Now goes right
                 }
+                // Space/Shift for altitude up/down
                 if (inputState.keys.has('Space')) {
-                    camera.moveUp(moveSpeed);
+                    camera.changeAltitude(moveSpeed * movementScale);
                 }
                 if (inputState.keys.has('ShiftLeft') || inputState.keys.has('ShiftRight')) {
-                    camera.moveUp(-moveSpeed);
+                    camera.changeAltitude(-moveSpeed * movementScale);
                 }
 
-                // Rotation controls (Arrow keys) - use degrees for intuition
-                const degreesToRadians = Math.PI / 180;
-                const rotateSpeedRad = rotateSpeed * degreesToRadians;
+                // Rotation controls (Arrow keys) - 0.02 radians like in C++
+                const rotationDelta = 0.02;
 
                 if (inputState.keys.has('ArrowLeft')) {
-                    camera.rotate(-rotateSpeedRad, 0);
+                    camera.changeYaw(rotationDelta); // Turn left (positive yaw)
                 }
                 if (inputState.keys.has('ArrowRight')) {
-                    camera.rotate(rotateSpeedRad, 0);
+                    camera.changeYaw(-rotationDelta); // Turn right (negative yaw)
                 }
                 if (inputState.keys.has('ArrowUp')) {
-                    camera.rotate(0, rotateSpeedRad);
+                    camera.changePitch(rotationDelta);
                 }
                 if (inputState.keys.has('ArrowDown')) {
-                    camera.rotate(0, -rotateSpeedRad);
+                    camera.changePitch(-rotationDelta);
                 }
 
-                // Mouse look (only when pointer is locked)
+                // Mouse look (matches C++ sensitivity: 0.01)
                 if (
                     inputState.mouseDelta &&
                     (inputState.mouseDelta.x !== 0 || inputState.mouseDelta.y !== 0)
                 ) {
-                    const mouseSensitivity = 0.001; // More reasonable sensitivity
-                    const yawDelta = inputState.mouseDelta.x * mouseSensitivity;
-                    const pitchDelta = -inputState.mouseDelta.y * mouseSensitivity;
-
-                    camera.rotate(yawDelta, pitchDelta);
+                    const mouseSensitivity = 0.01;
+                    camera.changeYaw(-inputState.mouseDelta.x * mouseSensitivity); // Inverted to match arrow keys
+                    camera.changePitch(-inputState.mouseDelta.y * mouseSensitivity);
                 }
 
                 // Debug camera position every second
@@ -405,6 +408,10 @@ export class Engine {
             const terrainTiles = this.world.getRenderableTerrain();
             if (this.frameCount % 60 === 0) {
                 console.log('Engine: Got', terrainTiles.length, 'terrain tiles from world');
+                if (terrainTiles.length > 0) {
+                    const firstTile = terrainTiles[0];
+                    console.log('First tile:', firstTile.id, 'bounds:', firstTile.worldBounds);
+                }
             }
             (this.renderer as any).setTerrainTiles?.(terrainTiles);
         }

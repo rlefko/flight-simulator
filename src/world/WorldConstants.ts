@@ -32,7 +32,7 @@ export const EARTH_CONSTANTS = {
 // Terrain tile configuration
 export const TERRAIN_CONFIG = {
     /** Base tile size in world units (meters) */
-    BASE_TILE_SIZE: 8192,
+    BASE_TILE_SIZE: 8192, // 8km base tiles for flight simulator scale
 
     /** Number of height samples per tile edge */
     HEIGHT_RESOLUTION: 257, // Power of 2 + 1 for seamless LOD
@@ -61,19 +61,19 @@ export const LOD_CONFIG = {
     /** Distance thresholds for terrain LOD levels (meters) */
     TERRAIN_DISTANCES: [
         0, // Level 0: Highest detail
-        10000, // Level 1: High detail - Changed from 1000 to ensure root tile is visible
-        20000, // Level 2: Medium-high detail
-        40000, // Level 3: Medium detail
-        80000, // Level 4: Low-medium detail
-        160000, // Level 5: Low detail
-        320000, // Level 6+: Lowest detail
+        2000, // Level 1: High detail (2km)
+        5000, // Level 2: Medium-high detail (5km)
+        10000, // Level 3: Medium detail (10km)
+        20000, // Level 4: Low-medium detail (20km)
+        40000, // Level 5: Low detail (40km)
+        80000, // Level 6+: Lowest detail (80km)
     ],
 
     /** Texture resolution per LOD level */
     TEXTURE_SIZES: [2048, 1024, 512, 256, 128, 64, 32],
 
     /** Mesh complexity per LOD level */
-    MESH_SUBDIVISIONS: [6, 5, 4, 3, 2, 1, 0], // Powers of 2
+    MESH_SUBDIVISIONS: [4, 4, 3, 3, 2, 1, 0], // Powers of 2 - reduced for debugging
 
     /** Distance-based culling threshold */
     CULL_DISTANCE: 2000000, // 2000 km
@@ -116,12 +116,12 @@ export const PERFORMANCE_CONFIG = {
 export const NOISE_CONFIG = {
     /** Primary terrain noise octaves */
     TERRAIN_OCTAVES: [
-        { frequency: 0.0005, amplitude: 2000, type: 'ridge' }, // Continental features
-        { frequency: 0.002, amplitude: 800, type: 'fbm' }, // Mountain ranges
-        { frequency: 0.008, amplitude: 200, type: 'turbulence' }, // Hills and valleys
-        { frequency: 0.032, amplitude: 50, type: 'fbm' }, // Local features
-        { frequency: 0.128, amplitude: 12, type: 'turbulence' }, // Fine detail
-        { frequency: 0.512, amplitude: 3, type: 'fbm' }, // Surface roughness
+        { frequency: 0.00005, amplitude: 300, type: 'fbm' }, // Continental features - much lower frequency
+        { frequency: 0.0002, amplitude: 150, type: 'fbm' }, // Mountain ranges
+        { frequency: 0.0008, amplitude: 50, type: 'fbm' }, // Hills and valleys
+        { frequency: 0.0032, amplitude: 20, type: 'fbm' }, // Local features
+        { frequency: 0.0128, amplitude: 5, type: 'fbm' }, // Fine detail
+        { frequency: 0.0512, amplitude: 1, type: 'fbm' }, // Surface roughness
     ],
 
     /** Erosion simulation parameters */
