@@ -7,6 +7,10 @@ import { UniformBufferManager } from './pipeline/UniformBufferManager';
 import { WebGL2Fallback } from './WebGL2Fallback';
 import { TerrainRenderer } from './TerrainRenderer';
 import { TerrainTile } from '../world/TerrainTile';
+import { ShadowSystem } from './ShadowSystem';
+import { WaterRenderer } from './WaterRenderer';
+import { WaterSystem } from '../world/WaterSystem';
+import { PerformanceOptimizer } from './PerformanceOptimizer';
 
 export interface WebGPURenderingCapabilities {
     maxTextureSize: number;
@@ -78,6 +82,12 @@ export class WebGPURenderer {
     private depthTexture: GPUTexture | null = null;
     private depthTextureView: GPUTextureView | null = null;
     private terrainTiles: TerrainTile[] = [];
+
+    // Advanced rendering systems
+    private shadowSystem: ShadowSystem | null = null;
+    private waterRenderer: WaterRenderer | null = null;
+    private waterSystem: WaterSystem | null = null;
+    private performanceOptimizer: PerformanceOptimizer | null = null;
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;
@@ -243,6 +253,55 @@ export class WebGPURenderer {
 
         // Create terrain renderer
         this.terrainRenderer = new TerrainRenderer(this.device);
+
+        // Create advanced rendering systems
+        this.shadowSystem = new ShadowSystem(this.device, {
+            resolution: this.qualitySettings.shadowMapSize,
+            cascadeCount: 4,
+            cascadeDistances: [100, 500, 2000, 10000],
+            maxDistance: 50000,
+        });
+
+        this.waterSystem = new WaterSystem();
+        this.waterRenderer = new WaterRenderer(this.device, this.waterSystem, {
+            reflection: {
+                enabled: this.qualitySettings.enableSSR,
+                resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
+                maxDistance: 10000,
+                downscaleFactor: 0.5,
+                updateFrequency: 30,
+                planarReflections: true,
+                screenSpaceReflections: this.qualitySettings.enableSSR,
+            },
+            refraction: {
+                enabled: true,
+                resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
+                distortionStrength: 0.1,
+                refractionIndex: 1.33,
+                underwaterFogDensity: 0.02,
+                underwaterColor: new Vector3(0.1, 0.3, 0.4),
+            },
+            foamEnabled: true,
+            normalMapScale: 1.0,
+            roughness: 0.02,
+            transparency: 0.8,
+            fresnelPower: 5.0,
+            waveScale: 1.0,
+            waveSpeed: 1.0,
+            shoreBlendDistance: 10.0,
+        });
+
+        // Create performance optimizer
+        this.performanceOptimizer = new PerformanceOptimizer({
+            targetFPS: 60,
+            maxFrameTime: 16.67,
+            maxShadowTime: 4.0,
+            maxWaterTime: 3.0,
+            maxMemoryUsage: 512 * 1024 * 1024,
+            minQualityLevel: 0.3,
+        });
+
+        this.performanceOptimizer.initialize(this.shadowSystem, this.waterRenderer);
 
         // Create depth texture for 3D rendering
         this.createDepthTexture();
@@ -450,21 +509,109 @@ export class WebGPURenderer {
                             : undefined,
                     });
 
+                    // Render shadow maps first (if performance allows)
+                    const shouldRenderShadows =
+                        this.performanceOptimizer?.shouldRenderShadows() ?? true;
+                    if (
+                        shouldRenderShadows &&
+                        this.shadowSystem &&
+                        this.terrainRenderer &&
+                        this.terrainTiles.length > 0
+                    ) {
+                        const shadowStartTime = performance.now();
+                        this.shadowSystem.updateCascades(this.camera);
+                        this.shadowSystem.renderShadowMaps(
+                            commandEncoder,
+                            (shadowRenderPass, cascadeIndex) => {
+                                // Render terrain to shadow map
+                                this.terrainRenderer!.render(
+                                    shadowRenderPass,
+                                    this.terrainTiles,
+                                    this.camera,
+                                    performance.now() / 1000
+                                );
+                            }
+                        );
+                        this.renderStats.renderTime += performance.now() - shadowStartTime;
+                    }
+
+                    // Update water system
+                    if (this.waterSystem && this.waterRenderer) {
+                        const waterStartTime = performance.now();
+                        this.waterSystem.update(deltaTime, this.camera.getPosition());
+                        this.waterSystem.extractWaterFromTerrain(this.terrainTiles);
+
+                        // Update water reflections (if performance allows)
+                        const shouldUpdateReflections =
+                            this.performanceOptimizer?.shouldUpdateReflections(this.frameCount) ??
+                            true;
+                        if (shouldUpdateReflections) {
+                            this.waterRenderer.updateReflection(
+                                commandEncoder,
+                                this.camera,
+                                (reflectionCamera, reflectionPass) => {
+                                    // Render terrain and other objects to reflection texture
+                                    if (this.terrainRenderer && this.terrainTiles.length > 0) {
+                                        this.terrainRenderer.render(
+                                            reflectionPass,
+                                            this.terrainTiles,
+                                            reflectionCamera,
+                                            performance.now() / 1000,
+                                            shouldRenderShadows
+                                                ? this.shadowSystem || undefined
+                                                : undefined
+                                        );
+                                    }
+                                }
+                            );
+                        }
+                        this.renderStats.renderTime += performance.now() - waterStartTime;
+                    }
+
                     // Render terrain if available
                     if (this.terrainRenderer && this.terrainTiles.length > 0) {
                         if (this.frameCount % 60 === 0) {
                             console.log(
                                 'WebGPURenderer: Rendering',
                                 this.terrainTiles.length,
-                                'terrain tiles'
+                                'terrain tiles with shadows and water (Quality:',
+                                Math.round(
+                                    (this.performanceOptimizer?.getQualityLevel() ?? 1) * 100
+                                ) + '%)'
                             );
                         }
+
+                        const terrainStartTime = performance.now();
                         this.terrainRenderer.render(
                             renderPass,
                             this.terrainTiles,
                             this.camera,
-                            performance.now() / 1000
+                            performance.now() / 1000,
+                            shouldRenderShadows ? this.shadowSystem || undefined : undefined
                         );
+                        this.renderStats.renderTime += performance.now() - terrainStartTime;
+
+                        // Render water surfaces
+                        if (this.waterRenderer && this.waterSystem) {
+                            const cullingDistance =
+                                this.performanceOptimizer?.getCullingDistance(this.camera) ?? 50000;
+                            const visibleWaterSurfaces = this.waterSystem.getVisibleSurfaces(
+                                this.camera.getPosition(),
+                                cullingDistance
+                            );
+
+                            if (visibleWaterSurfaces.length > 0) {
+                                const waterRenderStartTime = performance.now();
+                                this.waterRenderer.render(
+                                    renderPass,
+                                    this.camera,
+                                    visibleWaterSurfaces,
+                                    performance.now() / 1000
+                                );
+                                this.renderStats.renderTime +=
+                                    performance.now() - waterRenderStartTime;
+                            }
+                        }
                     } else if (this.testPipeline && this.testTriangleBuffer) {
                         // Fallback to test triangle if no terrain
                         if (this.frameCount % 60 === 0) {
@@ -513,8 +660,17 @@ export class WebGPURenderer {
             this.eventBus.emit('renderer:error', { error });
         }
 
-        // Update performance stats
+        // Update performance stats and optimizer
         this.updateRenderStats();
+
+        // Update performance optimizer
+        if (this.performanceOptimizer) {
+            this.performanceOptimizer.update(this.renderStats.frameTime, {
+                triangleCount: this.renderStats.triangles,
+                drawCalls: this.renderStats.drawCalls,
+                memoryUsage: this.renderStats.memoryUsage.total,
+            });
+        }
     }
 
     private updateRenderStats(): void {
@@ -684,6 +840,77 @@ export class WebGPURenderer {
         this.terrainTiles = tiles;
     }
 
+    /**
+     * Get shadow system for external configuration
+     */
+    public getShadowSystem(): ShadowSystem | null {
+        return this.shadowSystem;
+    }
+
+    /**
+     * Get water renderer for external configuration
+     */
+    public getWaterRenderer(): WaterRenderer | null {
+        return this.waterRenderer;
+    }
+
+    /**
+     * Get water system for external configuration
+     */
+    public getWaterSystem(): WaterSystem | null {
+        return this.waterSystem;
+    }
+
+    /**
+     * Update lighting settings
+     */
+    public setLightDirection(direction: Vector3): void {
+        if (this.shadowSystem) {
+            this.shadowSystem.setLightDirection(direction);
+        }
+    }
+
+    /**
+     * Update light color and intensity
+     */
+    public setLightColor(color: Vector3, intensity: number): void {
+        if (this.shadowSystem) {
+            this.shadowSystem.setLightColor(color, intensity);
+        }
+    }
+
+    /**
+     * Enable or disable shadows
+     */
+    public setShadowsEnabled(enabled: boolean): void {
+        if (this.shadowSystem) {
+            this.shadowSystem.setShadowsEnabled(enabled);
+        }
+    }
+
+    /**
+     * Get performance optimizer
+     */
+    public getPerformanceOptimizer(): PerformanceOptimizer | null {
+        return this.performanceOptimizer;
+    }
+
+    /**
+     * Set quality level (0.0 to 1.0)
+     */
+    public setQualityLevel(level: number): void {
+        if (this.performanceOptimizer) {
+            this.performanceOptimizer.setQualityLevel(level);
+        }
+    }
+
+    /**
+     * Get current quality level (0.0 to 1.0)
+     */
+    public getQualityLevel(): number {
+        return this.performanceOptimizer?.getQualityLevel() ?? 1.0;
+    }
+
     destroy(): void {
         if (this.testTriangleBuffer) {
             this.testTriangleBuffer.destroy();
@@ -698,6 +925,25 @@ export class WebGPURenderer {
         if (this.terrainRenderer) {
             this.terrainRenderer.destroy();
             this.terrainRenderer = null;
+        }
+
+        if (this.shadowSystem) {
+            this.shadowSystem.destroy();
+            this.shadowSystem = null;
+        }
+
+        if (this.waterRenderer) {
+            this.waterRenderer.destroy();
+            this.waterRenderer = null;
+        }
+
+        if (this.waterSystem) {
+            this.waterSystem.clear();
+            this.waterSystem = null;
+        }
+
+        if (this.performanceOptimizer) {
+            this.performanceOptimizer = null;
         }
 
         if (this.webgl2Fallback) {

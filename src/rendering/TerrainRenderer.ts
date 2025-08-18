@@ -1,6 +1,7 @@
 import { TerrainTile } from '../world/TerrainTile';
 import { Camera } from './Camera';
 import { Vector3, Matrix4 } from '../core/math';
+import { ShadowSystem } from './ShadowSystem';
 
 interface TerrainMeshData {
     vertexBuffer: GPUBuffer;
@@ -30,6 +31,37 @@ export class TerrainRenderer {
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
+                // Shadow maps will be bound by shadow system
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'depth' },
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'depth' },
+                },
+                {
+                    binding: 3,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'depth' },
+                },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'depth' },
+                },
+                {
+                    binding: 5,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    sampler: { type: 'comparison' },
+                },
+                {
+                    binding: 6,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
             ],
         });
 
@@ -53,73 +85,7 @@ export class TerrainRenderer {
     private createPipeline(): void {
         const shaderModule = this.device.createShaderModule({
             label: 'Terrain Shader Module',
-            code: `
-                struct Uniforms {
-                    mvpMatrix: mat4x4<f32>,
-                    modelMatrix: mat4x4<f32>,
-                    normalMatrix: mat4x4<f32>,
-                    cameraPosition: vec3<f32>,
-                    time: f32,
-                };
-                
-                @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-                
-                struct VertexInput {
-                    @location(0) position: vec3<f32>,
-                    @location(1) normal: vec3<f32>,
-                    @location(2) uv: vec2<f32>,
-                };
-                
-                struct VertexOutput {
-                    @builtin(position) position: vec4<f32>,
-                    @location(0) worldPos: vec3<f32>,
-                    @location(1) normal: vec3<f32>,
-                    @location(2) uv: vec2<f32>,
-                    @location(3) height: f32,
-                };
-                
-                @vertex
-                fn vs_main(input: VertexInput) -> VertexOutput {
-                    var output: VertexOutput;
-                    
-                    let worldPos = (uniforms.modelMatrix * vec4<f32>(input.position, 1.0)).xyz;
-                    output.position = uniforms.mvpMatrix * vec4<f32>(input.position, 1.0);
-                    output.worldPos = worldPos;
-                    output.normal = normalize((uniforms.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
-                    output.uv = input.uv;
-                    output.height = input.position.y;
-                    
-                    return output;
-                }
-                
-                @fragment
-                fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                    // Simple green color for debugging - make terrain always visible
-                    var color = vec3<f32>(0.2, 0.6, 0.2); // Green
-                    
-                    // Add some height variation for visibility
-                    let heightFactor = clamp(input.worldPos.y / 500.0, 0.0, 1.0);
-                    color = mix(vec3<f32>(0.1, 0.4, 0.1), vec3<f32>(0.4, 0.8, 0.4), heightFactor);
-                    
-                    // Simple lighting
-                    let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.3));
-                    let NdotL = max(dot(input.normal, lightDir), 0.0);
-                    let ambient = 0.4;
-                    let diffuse = 0.6 * NdotL;
-                    let lighting = ambient + diffuse;
-                    
-                    // Apply fog based on distance
-                    let distance = length(uniforms.cameraPosition - input.worldPos);
-                    let fogStart = 10000.0;  // 10km
-                    let fogEnd = 50000.0;    // 50km
-                    let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
-                    let fogColor = vec3<f32>(0.7, 0.8, 0.9);
-                    
-                    color = mix(fogColor, color * lighting, fogFactor);
-                    
-                    return vec4<f32>(color, 1.0);
-                }
-            `,
+            code: this.getTerrainShaderCode(),
         });
 
         this.pipeline = this.device.createRenderPipeline({
@@ -127,7 +93,7 @@ export class TerrainRenderer {
             layout: this.pipelineLayout,
             vertex: {
                 module: shaderModule,
-                entryPoint: 'vs_main',
+                entryPoint: 'vs_terrain',
                 buffers: [
                     {
                         arrayStride: 32, // 3 floats position + 3 floats normal + 2 floats uv
@@ -153,7 +119,7 @@ export class TerrainRenderer {
             },
             fragment: {
                 module: shaderModule,
-                entryPoint: 'fs_main',
+                entryPoint: 'fs_terrain',
                 targets: [
                     {
                         format: navigator.gpu.getPreferredCanvasFormat(),
@@ -171,6 +137,210 @@ export class TerrainRenderer {
                 format: 'depth24plus',
             },
         });
+    }
+
+    /**
+     * Get terrain shader code with shadow support
+     */
+    private getTerrainShaderCode(): string {
+        return `
+            struct Uniforms {
+                mvpMatrix: mat4x4<f32>,
+                modelMatrix: mat4x4<f32>,
+                normalMatrix: mat4x4<f32>,
+                cameraPosition: vec3<f32>,
+                time: f32,
+            };
+            
+            struct ShadowUniforms {
+                lightMatrix0: mat4x4<f32>,
+                lightMatrix1: mat4x4<f32>,
+                lightMatrix2: mat4x4<f32>,
+                lightMatrix3: mat4x4<f32>,
+                cascadeDistances: vec4<f32>,
+                lightDirection: vec3<f32>,
+                shadowBias: f32,
+                lightColor: vec3<f32>,
+                lightIntensity: f32,
+            };
+            
+            @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+            @group(0) @binding(1) var shadowMap0: texture_depth_2d;
+            @group(0) @binding(2) var shadowMap1: texture_depth_2d;
+            @group(0) @binding(3) var shadowMap2: texture_depth_2d;
+            @group(0) @binding(4) var shadowMap3: texture_depth_2d;
+            @group(0) @binding(5) var shadowSampler: sampler_comparison;
+            @group(0) @binding(6) var<uniform> shadowUniforms: ShadowUniforms;
+            
+            struct VertexInput {
+                @location(0) position: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+                @location(2) uv: vec2<f32>,
+            };
+            
+            struct VertexOutput {
+                @builtin(position) position: vec4<f32>,
+                @location(0) worldPos: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+                @location(2) uv: vec2<f32>,
+                @location(3) height: f32,
+                @location(4) viewDepth: f32,
+            };
+            
+            @vertex
+            fn vs_terrain(input: VertexInput) -> VertexOutput {
+                var output: VertexOutput;
+                
+                let worldPos = (uniforms.modelMatrix * vec4<f32>(input.position, 1.0)).xyz;
+                let clipPos = uniforms.mvpMatrix * vec4<f32>(input.position, 1.0);
+                
+                output.position = clipPos;
+                output.worldPos = worldPos;
+                output.normal = normalize((uniforms.normalMatrix * vec4<f32>(input.normal, 0.0)).xyz);
+                output.uv = input.uv;
+                output.height = input.position.y;
+                output.viewDepth = clipPos.z / clipPos.w;
+                
+                return output;
+            }
+            
+            fn getShadowCascadeIndex(viewDepth: f32) -> i32 {
+                if (viewDepth < shadowUniforms.cascadeDistances.x) {
+                    return 0;
+                } else if (viewDepth < shadowUniforms.cascadeDistances.y) {
+                    return 1;
+                } else if (viewDepth < shadowUniforms.cascadeDistances.z) {
+                    return 2;
+                } else if (viewDepth < shadowUniforms.cascadeDistances.w) {
+                    return 3;
+                }
+                return -1;
+            }
+            
+            fn getLightMatrix(cascadeIndex: i32) -> mat4x4<f32> {
+                switch (cascadeIndex) {
+                    case 0: { return shadowUniforms.lightMatrix0; }
+                    case 1: { return shadowUniforms.lightMatrix1; }
+                    case 2: { return shadowUniforms.lightMatrix2; }
+                    case 3: { return shadowUniforms.lightMatrix3; }
+                    default: { return shadowUniforms.lightMatrix0; }
+                }
+            }
+            
+            fn sampleShadowMap(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
+                switch (cascadeIndex) {
+                    case 0: { return textureSampleCompare(shadowMap0, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
+                    case 1: { return textureSampleCompare(shadowMap1, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
+                    case 2: { return textureSampleCompare(shadowMap2, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
+                    case 3: { return textureSampleCompare(shadowMap3, shadowSampler, lightSpacePos.xy, lightSpacePos.z); }
+                    default: { return 1.0; }
+                }
+            }
+            
+            fn calculateShadowPCF(cascadeIndex: i32, lightSpacePos: vec3<f32>) -> f32 {
+                let texelSize = 1.0 / 2048.0;
+                var shadowSum = 0.0;
+                var sampleCount = 0.0;
+                
+                for (var x = -1; x <= 1; x++) {
+                    for (var y = -1; y <= 1; y++) {
+                        let offset = vec2<f32>(f32(x), f32(y)) * texelSize;
+                        let samplePos = vec3<f32>(lightSpacePos.xy + offset, lightSpacePos.z);
+                        shadowSum += sampleShadowMap(cascadeIndex, samplePos);
+                        sampleCount += 1.0;
+                    }
+                }
+                
+                return shadowSum / sampleCount;
+            }
+            
+            fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
+                let cascadeIndex = getShadowCascadeIndex(viewDepth);
+                if (cascadeIndex < 0) {
+                    return 1.0;
+                }
+                
+                let lightMatrix = getLightMatrix(cascadeIndex);
+                let lightSpacePos4 = lightMatrix * vec4<f32>(worldPos, 1.0);
+                var lightSpacePos = lightSpacePos4.xyz / lightSpacePos4.w;
+                
+                lightSpacePos.x = lightSpacePos.x * 0.5 + 0.5;
+                lightSpacePos.y = lightSpacePos.y * -0.5 + 0.5;
+                
+                if (lightSpacePos.x < 0.0 || lightSpacePos.x > 1.0 || 
+                    lightSpacePos.y < 0.0 || lightSpacePos.y > 1.0 || 
+                    lightSpacePos.z < 0.0 || lightSpacePos.z > 1.0) {
+                    return 1.0;
+                }
+                
+                let bias = shadowUniforms.shadowBias * (1.0 + (1.0 - abs(dot(normal, shadowUniforms.lightDirection))));
+                lightSpacePos.z -= bias;
+                
+                return calculateShadowPCF(cascadeIndex, lightSpacePos);
+            }
+            
+            @fragment
+            fn fs_terrain(input: VertexOutput) -> @location(0) vec4<f32> {
+                // Base terrain color based on height
+                var baseColor = vec3<f32>(0.2, 0.6, 0.2); // Green
+                
+                let heightFactor = clamp(input.worldPos.y / 500.0, 0.0, 1.0);
+                baseColor = mix(
+                    vec3<f32>(0.1, 0.4, 0.1), // Dark green (low)
+                    vec3<f32>(0.4, 0.8, 0.4), // Bright green (high)
+                    heightFactor
+                );
+                
+                // Add some rock color at higher elevations
+                if (input.worldPos.y > 300.0) {
+                    let rockFactor = smoothstep(300.0, 800.0, input.worldPos.y);
+                    baseColor = mix(baseColor, vec3<f32>(0.5, 0.4, 0.3), rockFactor);
+                }
+                
+                // Calculate lighting
+                let lightDir = -shadowUniforms.lightDirection;
+                let NdotL = max(dot(input.normal, lightDir), 0.0);
+                
+                // Calculate shadow
+                let shadowFactor = calculateShadow(input.worldPos, input.normal, input.viewDepth);
+                
+                // Apply lighting with shadows
+                let ambient = 0.3;
+                let diffuse = 0.7 * NdotL * shadowFactor;
+                let lighting = ambient + diffuse;
+                
+                var finalColor = baseColor * lighting * shadowUniforms.lightColor * shadowUniforms.lightIntensity;
+                
+                // Apply atmospheric scattering
+                let distance = length(uniforms.cameraPosition - input.worldPos);
+                let scatteringCoeff = 0.00001;
+                let scattering = 1.0 - exp(-distance * scatteringCoeff);
+                
+                let sunDirection = -shadowUniforms.lightDirection;
+                let viewDirection = normalize(input.worldPos - uniforms.cameraPosition);
+                let cosTheta = dot(viewDirection, sunDirection);
+                let miePhase = (1.0 + cosTheta * cosTheta) * 0.5;
+                
+                let skyColor = mix(
+                    vec3<f32>(0.5, 0.7, 1.0),
+                    vec3<f32>(1.0, 0.8, 0.6),
+                    max(0.0, sunDirection.y) * 0.5
+                );
+                
+                let scatteredLight = skyColor * scattering * miePhase;
+                finalColor += scatteredLight;
+                
+                // Distance fog
+                let fogStart = 10000.0;
+                let fogEnd = 50000.0;
+                let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
+                let fogColor = vec3<f32>(0.7, 0.8, 0.9);
+                
+                finalColor = mix(fogColor, finalColor, fogFactor);
+                
+                return vec4<f32>(finalColor, 1.0);
+            }
+        `;
     }
 
     public createTerrainMesh(tile: TerrainTile): TerrainMeshData | null {
@@ -229,18 +399,7 @@ export class TerrainRenderer {
         });
 
         // Create bind group for this tile with its own uniform buffer
-        const bindGroup = this.device.createBindGroup({
-            label: `Terrain Bind Group ${tile.id}`,
-            layout: this.bindGroupLayout,
-            entries: [
-                {
-                    binding: 0,
-                    resource: {
-                        buffer: uniformBuffer,
-                    },
-                },
-            ],
-        });
+        const bindGroup = this.createTerrainBindGroup(tile.id, uniformBuffer);
 
         const terrainMeshData: TerrainMeshData = {
             vertexBuffer,
@@ -258,7 +417,8 @@ export class TerrainRenderer {
         renderPass: GPURenderPassEncoder,
         tiles: TerrainTile[],
         camera: Camera,
-        time: number
+        time: number,
+        shadowSystem?: ShadowSystem
     ): void {
         if (!this.pipeline) {
             console.error('TerrainRenderer: No pipeline available');
@@ -280,6 +440,15 @@ export class TerrainRenderer {
 
             if (!meshData) {
                 continue;
+            }
+
+            // Update bind group if we have shadow system
+            if (shadowSystem) {
+                meshData.bindGroup = this.createTerrainBindGroup(
+                    tile.id,
+                    meshData.uniformBuffer,
+                    shadowSystem
+                );
             }
 
             // Create model matrix for this tile
@@ -315,6 +484,151 @@ export class TerrainRenderer {
 
     public clearCache(): void {
         this.meshCache.clear();
+    }
+
+    /**
+     * Create bind group for terrain with shadow support
+     */
+    private createTerrainBindGroup(
+        tileId: string,
+        uniformBuffer: GPUBuffer,
+        shadowSystem?: ShadowSystem
+    ): GPUBindGroup {
+        const entries: GPUBindGroupEntry[] = [
+            {
+                binding: 0,
+                resource: { buffer: uniformBuffer },
+            },
+        ];
+
+        if (shadowSystem) {
+            const shadowMaps = shadowSystem.getShadowMaps();
+            const shadowSampler = shadowSystem.getShadowSampler();
+            const shadowUniforms = this.createShadowUniformBuffer(shadowSystem);
+
+            // Add shadow map textures
+            for (let i = 0; i < 4; i++) {
+                entries.push({
+                    binding: i + 1,
+                    resource:
+                        shadowMaps[i]?.createView() || this.createDummyDepthTexture().createView(),
+                });
+            }
+
+            // Add shadow sampler
+            entries.push({
+                binding: 5,
+                resource: shadowSampler,
+            });
+
+            // Add shadow uniforms
+            entries.push({
+                binding: 6,
+                resource: { buffer: shadowUniforms },
+            });
+        } else {
+            // Add dummy resources for shadow bindings
+            const dummyTexture = this.createDummyDepthTexture();
+            const dummySampler = this.createDummySampler();
+            const dummyBuffer = this.createDummyUniformBuffer();
+
+            for (let i = 1; i <= 4; i++) {
+                entries.push({
+                    binding: i,
+                    resource: dummyTexture.createView(),
+                });
+            }
+
+            entries.push({ binding: 5, resource: dummySampler });
+            entries.push({ binding: 6, resource: { buffer: dummyBuffer } });
+        }
+
+        return this.device.createBindGroup({
+            label: `Terrain Bind Group ${tileId}`,
+            layout: this.bindGroupLayout,
+            entries,
+        });
+    }
+
+    /**
+     * Create shadow uniform buffer
+     */
+    private createShadowUniformBuffer(shadowSystem: ShadowSystem): GPUBuffer {
+        const shadowConfig = shadowSystem.getConfig();
+        const light = shadowSystem.getLight();
+        const cascades = shadowSystem.getCascades();
+
+        const buffer = this.device.createBuffer({
+            label: 'Terrain Shadow Uniforms',
+            size: 256, // 4 matrices + cascade distances + light data
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        // Update buffer with shadow data
+        const uniformData = new Float32Array(64); // 256 bytes / 4 = 64 floats
+        let offset = 0;
+
+        // Light matrices (16 floats each)
+        for (let i = 0; i < 4; i++) {
+            if (i < cascades.length) {
+                uniformData.set(cascades[i].lightMatrix.elements, offset);
+            }
+            offset += 16;
+        }
+
+        // Cascade distances (4 floats)
+        uniformData.set(shadowConfig.cascadeDistances, offset);
+        offset += 4;
+
+        // Light direction (3 floats)
+        uniformData.set([light.direction.x, light.direction.y, light.direction.z], offset);
+        offset += 3;
+
+        // Shadow bias (1 float)
+        uniformData[offset++] = shadowConfig.biasConstant;
+
+        // Light color (3 floats)
+        uniformData.set([light.color.x, light.color.y, light.color.z], offset);
+        offset += 3;
+
+        // Light intensity (1 float)
+        uniformData[offset] = light.intensity;
+
+        this.device.queue.writeBuffer(buffer, 0, uniformData);
+        return buffer;
+    }
+
+    /**
+     * Create dummy depth texture for missing shadows
+     */
+    private createDummyDepthTexture(): GPUTexture {
+        return this.device.createTexture({
+            label: 'Dummy Depth Texture',
+            size: [1, 1, 1],
+            format: 'depth32float',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+    }
+
+    /**
+     * Create dummy sampler
+     */
+    private createDummySampler(): GPUSampler {
+        return this.device.createSampler({
+            label: 'Dummy Sampler',
+            compare: 'less',
+        });
+    }
+
+    /**
+     * Create dummy uniform buffer
+     */
+    private createDummyUniformBuffer(): GPUBuffer {
+        return this.device.createBuffer({
+            label: 'Dummy Uniform Buffer',
+            size: 256,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
     }
 
     public destroy(): void {
