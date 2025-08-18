@@ -27,11 +27,14 @@ export default defineConfig({
         sourcemap: true,
         rollupOptions: {
             output: {
-                manualChunks: {
-                    physics: ['./src/physics'],
-                    rendering: ['./src/rendering'],
-                    world: ['./src/world'],
-                },
+                manualChunks: undefined, // Disable manual chunks for now
+            },
+            external: [],
+            onwarn(warning, warn) {
+                // Suppress certain warnings
+                if (warning.code === 'CIRCULAR_DEPENDENCY') return;
+                if (warning.code === 'THIS_IS_UNDEFINED') return;
+                warn(warning);
             },
         },
     },
