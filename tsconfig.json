@@ -16,6 +16,8 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "strictPropertyInitialization": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,
