@@ -114,29 +114,30 @@ export const PERFORMANCE_CONFIG = {
 
 // Noise generation parameters
 export const NOISE_CONFIG = {
-    /** Primary terrain noise octaves */
+    /** Enhanced terrain noise octaves for realistic diverse terrain */
     TERRAIN_OCTAVES: [
-        { frequency: 0.00005, amplitude: 300, type: 'fbm' }, // Continental features - much lower frequency
-        { frequency: 0.0002, amplitude: 150, type: 'fbm' }, // Mountain ranges
-        { frequency: 0.0008, amplitude: 50, type: 'fbm' }, // Hills and valleys
-        { frequency: 0.0032, amplitude: 20, type: 'fbm' }, // Local features
-        { frequency: 0.0128, amplitude: 5, type: 'fbm' }, // Fine detail
-        { frequency: 0.0512, amplitude: 1, type: 'fbm' }, // Surface roughness
+        { frequency: 0.000015, amplitude: 1000, type: 'fbm' }, // Continental scale features
+        { frequency: 0.00006, amplitude: 500, type: 'fbm' }, // Large landforms
+        { frequency: 0.00025, amplitude: 200, type: 'ridge' }, // Mountain ridges
+        { frequency: 0.001, amplitude: 80, type: 'fbm' }, // Hills and valleys
+        { frequency: 0.004, amplitude: 25, type: 'turbulence' }, // Local terrain variation
+        { frequency: 0.016, amplitude: 8, type: 'fbm' }, // Fine detail
+        { frequency: 0.064, amplitude: 2, type: 'fbm' }, // Surface roughness
     ],
 
-    /** Erosion simulation parameters */
+    /** Erosion simulation parameters - tuned for safety and realism */
     EROSION: {
-        iterations: 0, // Disable erosion for now to avoid potential NaN issues
-        dropletLifetime: 30,
-        inertia: 0.05,
-        sedimentCapacityFactor: 4,
-        minSedimentCapacity: 0.01,
-        erodeSpeed: 0.3,
-        depositSpeed: 0.3,
-        evaporateSpeed: 0.01,
-        gravity: 4,
-        maxDropletSpeed: 10,
-        brushRadius: 3,
+        iterations: 0, // Temporarily disabled for debugging
+        dropletLifetime: 20, // Reduced for performance
+        inertia: 0.1, // Increased for more stable flow
+        sedimentCapacityFactor: 2, // Reduced to prevent over-erosion
+        minSedimentCapacity: 0.02, // Slightly higher minimum
+        erodeSpeed: 0.15, // Reduced erosion rate for stability
+        depositSpeed: 0.25, // Slightly reduced deposition
+        evaporateSpeed: 0.02, // Increased evaporation rate
+        gravity: 3, // Reduced gravity for gentler erosion
+        maxDropletSpeed: 8, // Reduced max speed
+        brushRadius: 2, // Smaller brush for more precise erosion
     },
 
     /** Temperature and precipitation noise */
@@ -161,16 +162,18 @@ export const BIOME_CONFIG = {
         TUNDRA: { id: 7, name: 'Tundra', color: [0.5, 0.6, 0.5] },
         WETLAND: { id: 8, name: 'Wetland', color: [0.3, 0.5, 0.3] },
         URBAN: { id: 9, name: 'Urban', color: [0.7, 0.7, 0.7] },
+        LAKE: { id: 10, name: 'Lake', color: [0.1, 0.5, 0.9] },
+        RIVER: { id: 11, name: 'River', color: [0.2, 0.6, 1.0] },
     },
 
     /** Elevation thresholds for biome classification */
     ELEVATION_THRESHOLDS: {
-        OCEAN: -1,
-        BEACH: 5,
-        GRASSLAND: 100,
-        FOREST: 500,
-        MOUNTAIN: 2000,
-        SNOW: 3500,
+        OCEAN: 0, // Sea level
+        BEACH: 10, // Beach zones up to 10m
+        GRASSLAND: 300, // Plains up to 300m
+        FOREST: 1000, // Hills up to 1000m
+        MOUNTAIN: 1000, // Mountains start at 1000m
+        SNOW: 3500, // Snow line at 3500m
     },
 
     /** Temperature thresholds (Celsius) */
