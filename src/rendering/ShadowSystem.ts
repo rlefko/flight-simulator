@@ -121,11 +121,12 @@ export class ShadowSystem {
         });
 
         // Create uniform buffer for shadow matrices
-        // Light matrix (64 bytes) per cascade
-        const bufferSize = 64 * this.shadowConfig.cascadeCount;
+        // Light matrix (64 bytes) per cascade, but aligned to 256 bytes per WebGPU requirements
+        const alignedSizePerCascade = 256; // WebGPU uniform buffer alignment requirement
+        const bufferSize = alignedSizePerCascade * this.shadowConfig.cascadeCount;
         this.shadowUniformBuffer = this.device.createBuffer({
             label: 'Shadow Uniform Buffer',
-            size: Math.max(256, bufferSize), // Ensure minimum alignment
+            size: bufferSize,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -437,11 +438,14 @@ export class ShadowSystem {
      * Update shadow uniform buffer
      */
     private updateShadowUniforms(): void {
-        const uniformData = new Float32Array(16 * this.cascades.length);
+        // Each cascade needs 256 bytes alignment (64 floats) per WebGPU requirements
+        const floatsPerCascade = 64; // 256 bytes / 4 bytes per float
+        const uniformData = new Float32Array(floatsPerCascade * this.cascades.length);
 
         for (let i = 0; i < this.cascades.length; i++) {
             const cascade = this.cascades[i];
-            uniformData.set(cascade.lightMatrix.elements, i * 16);
+            // Place matrix data at the properly aligned offset
+            uniformData.set(cascade.lightMatrix.elements, i * floatsPerCascade);
         }
 
         this.device.queue.writeBuffer(this.shadowUniformBuffer, 0, uniformData);
@@ -474,8 +478,8 @@ export class ShadowSystem {
                         binding: 0,
                         resource: {
                             buffer: this.shadowUniformBuffer,
-                            offset: i * 64, // 64 bytes per matrix
-                            size: 64,
+                            offset: i * 256, // 256 bytes alignment per WebGPU requirements
+                            size: 64, // Actual data size is still 64 bytes
                         },
                     },
                 ],
