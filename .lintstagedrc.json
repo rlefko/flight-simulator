@@ -1,0 +1,6 @@
+{
+    "*.{js,jsx,ts,tsx}": ["prettier --write"],
+    "*.{json,css,scss,html}": ["prettier --write"],
+    "*.md": ["prettier --write --prose-wrap always"],
+    "package.json": ["prettier --write"]
+}
