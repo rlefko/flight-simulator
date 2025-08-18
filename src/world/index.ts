@@ -1,6 +1,6 @@
 /**
  * World System - Comprehensive terrain generation and world management
- * 
+ *
  * This module provides a complete world generation system for the photorealistic
  * flight simulator, including terrain generation, scenery placement, and water
  * simulation suitable for large-scale environments.
@@ -36,7 +36,7 @@ export class WorldManager {
     private terrainGenerator: TerrainGenerator;
     private sceneryManager: SceneryManager;
     private waterSystem: WaterSystem;
-    
+
     private isInitialized: boolean = false;
     private currentCameraPosition: Vector3 = new Vector3();
 
@@ -56,7 +56,7 @@ export class WorldManager {
 
         // Initialize subsystems
         // (Additional initialization code would go here)
-        
+
         this.isInitialized = true;
     }
 
@@ -81,6 +81,8 @@ export class WorldManager {
         // Get visible terrain tiles
         const visibleTiles = this.terrainGenerator.getVisibleTiles();
 
+        // SKIP SCENERY FOR NOW - might be creating infinite objects
+        /*
         // Generate scenery for new tiles
         for (const tile of visibleTiles) {
             this.sceneryManager.generateSceneryForTile(tile);
@@ -88,13 +90,18 @@ export class WorldManager {
 
         // Update scenery LOD
         this.sceneryManager.updateSceneryLOD(cameraPosition, visibleTiles);
+        */
 
         // Extract and update water from terrain
         const renderableTiles = this.terrainGenerator.getRenderableTiles();
+
+        // SKIP WATER FOR NOW
+        /*
         this.waterSystem.extractWaterFromTerrain(renderableTiles);
 
         // Update water simulation
         this.waterSystem.update(deltaTime, cameraPosition);
+        */
     }
 
     /**
@@ -154,7 +161,7 @@ export class WorldManager {
             terrain: this.terrainGenerator.getStats(),
             streaming: this.terrainGenerator.getStreamingStats(),
             scenery: this.sceneryManager.getStats(),
-            water: this.waterSystem.getStats()
+            water: this.waterSystem.getStats(),
         };
     }
 

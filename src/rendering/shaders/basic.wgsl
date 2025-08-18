@@ -99,7 +99,7 @@ struct GBufferOutput {
 fn packNormal(normal: vec3<f32>) -> vec2<f32> {
     // Octahedral normal encoding for better precision
     let p = normal * (1.0 / (abs(normal.x) + abs(normal.y) + abs(normal.z)));
-    let octWrap = (1.0 - abs(p.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), p.xy >= 0.0);
+    let octWrap = (1.0 - abs(p.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), p.xy >= vec2<f32>(0.0));
     return select(octWrap, p.xy, normal.z >= 0.0);
 }
 
@@ -152,7 +152,7 @@ fn fs_main(input: VertexOutput) -> GBufferOutput {
     
     // Pack G-buffer data
     output.albedo = vec4<f32>(baseColor.rgb, metallic);
-    output.normal = vec4<f32>(packNormal(worldNormal), roughness);
+    output.normal = vec4<f32>(packNormal(worldNormal), roughness, 0.0);
     output.motion = vec4<f32>(motionVector, depthDdx, depthDdy);
     output.material = vec4<f32>(occlusion, length(emissive), 0.0, 0.0);
     

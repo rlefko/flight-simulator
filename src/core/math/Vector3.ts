@@ -14,6 +14,45 @@ export class Vector3 {
     static readonly FORWARD = new Vector3(0, 0, -1);
     static readonly BACKWARD = new Vector3(0, 0, 1);
 
+    static add(a: Vector3, b: Vector3): Vector3 {
+        return new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
+    }
+
+    static subtract(a: Vector3, b: Vector3): Vector3 {
+        return new Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+    }
+
+    static multiply(a: Vector3, b: Vector3): Vector3 {
+        return new Vector3(a.x * b.x, a.y * b.y, a.z * b.z);
+    }
+
+    static multiplyScalar(v: Vector3, scalar: number): Vector3 {
+        return new Vector3(v.x * scalar, v.y * scalar, v.z * scalar);
+    }
+
+    static cross(a: Vector3, b: Vector3): Vector3 {
+        return new Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+    }
+
+    static dot(a: Vector3, b: Vector3): number {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    static distance(a: Vector3, b: Vector3): number {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dz = a.z - b.z;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    static lerp(a: Vector3, b: Vector3, alpha: number): Vector3 {
+        return new Vector3(
+            a.x + (b.x - a.x) * alpha,
+            a.y + (b.y - a.y) * alpha,
+            a.z + (b.z - a.z) * alpha
+        );
+    }
+
     set(x: number, y: number, z: number): this {
         this.x = x;
         this.y = y;

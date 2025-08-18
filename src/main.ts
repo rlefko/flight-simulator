@@ -4,36 +4,46 @@ let engine: Engine | null = null;
 
 async function main() {
     try {
+        console.log('main(): Starting flight simulator initialization');
         const loadingElement = document.getElementById('loading');
-        
+
         const canvas = document.getElementById('canvas') as HTMLCanvasElement;
         if (!canvas) {
             throw new Error('Canvas element not found');
         }
-        
+
+        // Set canvas size to match window
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        console.log('main(): Canvas found and sized to', canvas.width, 'x', canvas.height);
+
         engine = new Engine({
             canvas,
             fixedTimeStep: 1 / 120,
             maxSubSteps: 10,
             targetFPS: 60,
-            enableStats: true
+            enableStats: true,
         });
-        
+        console.log('main(): Engine created');
+
         await engine.initialize();
-        
+        console.log('main(): Engine initialized');
+
         if (loadingElement) {
             loadingElement.style.display = 'none';
         }
-        
+
+        console.log('main(): Starting engine');
         engine.start();
-        
+        console.log('main(): Engine started');
+
         console.log('Flight Simulator started successfully');
-        
+
         setupKeyboardShortcuts();
-        
+        console.log('main(): Setup complete');
     } catch (error) {
         console.error('Failed to start flight simulator:', error);
-        
+
         const loadingElement = document.getElementById('loading');
         if (loadingElement) {
             loadingElement.innerHTML = `
@@ -51,7 +61,7 @@ async function main() {
 function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (event) => {
         if (!engine) return;
-        
+
         switch (event.key) {
             case 'Escape':
                 if (engine) {
@@ -65,12 +75,12 @@ function setupKeyboardShortcuts() {
                     }
                 }
                 break;
-                
+
             case 'F11':
                 event.preventDefault();
                 toggleFullscreen();
                 break;
-                
+
             case 'F1':
                 event.preventDefault();
                 showHelp();
@@ -118,6 +128,14 @@ Other:
 }
 
 window.addEventListener('DOMContentLoaded', main);
+
+window.addEventListener('resize', () => {
+    const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+    if (canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+});
 
 window.addEventListener('beforeunload', async () => {
     if (engine) {

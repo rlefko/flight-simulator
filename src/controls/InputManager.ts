@@ -1,12 +1,18 @@
 import { globalEventBus } from '../core/events/EventBus';
-import { SystemEvent, KeyEvent, MouseEvent, GamepadButtonEvent, GamepadAxisEvent } from '../core/events/SystemEvents';
+import {
+    SystemEvent,
+    KeyEvent,
+    MouseEvent,
+    GamepadButtonEvent,
+    GamepadAxisEvent,
+} from '../core/events/SystemEvents';
 
 export enum InputDeviceType {
     KEYBOARD,
     MOUSE,
     GAMEPAD,
     TOUCH,
-    VR_CONTROLLER
+    VR_CONTROLLER,
 }
 
 export interface InputControllerBase {
@@ -32,7 +38,7 @@ export class InputManager {
         mousePosition: { x: 0, y: 0 },
         mouseButtons: new Map(),
         gamepadAxes: new Map(),
-        gamepadButtons: new Map()
+        gamepadButtons: new Map(),
     };
     private eventBus = globalEventBus;
     private isRunning = false;
@@ -70,16 +76,17 @@ export class InputManager {
         this.isRunning = true;
 
         // Start each registered controller
-        this.controllers.forEach(controller => {
+        this.controllers.forEach((controller) => {
             if (!controller.isEnabled()) {
                 controller.setEnabled(true);
             }
         });
 
         // Optional processing interval for continuous input checking
-        this.processingInterval = window.setInterval(() => {
-            this.processInputState();
-        }, 16); // ~60 FPS
+        // Disabled for now to prevent potential memory issues
+        // this.processingInterval = window.setInterval(() => {
+        //     this.processInputState();
+        // }, 16); // ~60 FPS
     }
 
     public stop(): void {
@@ -87,7 +94,7 @@ export class InputManager {
         this.isRunning = false;
 
         // Stop each registered controller
-        this.controllers.forEach(controller => {
+        this.controllers.forEach((controller) => {
             controller.setEnabled(false);
         });
 
@@ -99,7 +106,14 @@ export class InputManager {
     }
 
     public getInputState(): InputState {
-        return { ...this.inputState };
+        // Create deep copy of the input state to avoid reference issues
+        return {
+            keys: new Map(this.inputState.keys),
+            mousePosition: { ...this.inputState.mousePosition },
+            mouseButtons: new Map(this.inputState.mouseButtons),
+            gamepadAxes: new Map(this.inputState.gamepadAxes),
+            gamepadButtons: new Map(this.inputState.gamepadButtons),
+        };
     }
 
     private setupEventListeners(): void {
@@ -109,8 +123,14 @@ export class InputManager {
         this.eventBus.on<MouseEvent>(SystemEvent.INPUT_MOUSE_MOVE, this.handleMouseMove.bind(this));
         this.eventBus.on<MouseEvent>(SystemEvent.INPUT_MOUSE_DOWN, this.handleMouseDown.bind(this));
         this.eventBus.on<MouseEvent>(SystemEvent.INPUT_MOUSE_UP, this.handleMouseUp.bind(this));
-        this.eventBus.on<GamepadButtonEvent>(SystemEvent.INPUT_GAMEPAD_BUTTON, this.handleGamepadButton.bind(this));
-        this.eventBus.on<GamepadAxisEvent>(SystemEvent.INPUT_GAMEPAD_AXIS, this.handleGamepadAxis.bind(this));
+        this.eventBus.on<GamepadButtonEvent>(
+            SystemEvent.INPUT_GAMEPAD_BUTTON,
+            this.handleGamepadButton.bind(this)
+        );
+        this.eventBus.on<GamepadAxisEvent>(
+            SystemEvent.INPUT_GAMEPAD_AXIS,
+            this.handleGamepadAxis.bind(this)
+        );
     }
 
     private handleKeyDown(event: KeyEvent): void {

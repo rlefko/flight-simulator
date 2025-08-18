@@ -71,7 +71,7 @@ fn unpackNormal(packedNormal: vec2<f32>) -> vec3<f32> {
     // Decode octahedral normal encoding
     let nxny = packedNormal * 2.0 - 1.0;
     let nz = 1.0 - abs(nxny.x) - abs(nxny.y);
-    let nxy = select(nxny, (1.0 - abs(nxny.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), nxny >= 0.0), nz >= 0.0);
+    let nxy = select(nxny, (1.0 - abs(nxny.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), nxny >= vec2<f32>(0.0)), nz >= 0.0);
     return normalize(vec3<f32>(nxy, nz));
 }
 
@@ -174,14 +174,6 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let materialData = textureSample(gBufferMaterial, gBufferSampler, input.uv);
     let depth = textureSample(depthTexture, gBufferSampler, input.uv);
     
-    // Early exit for skybox
-    if (depth >= 1.0) {
-        let viewDir = normalize(reconstructWorldPosition(input.uv, depth) - camera.cameraPosition);
-        let skyColor = textureSample(skyboxTexture, skyboxSampler, viewDir).rgb;
-        let atmosphereColor = calculateAtmosphericScattering(viewDir, lighting.sunDirection);
-        return vec4<f32>(skyColor + atmosphereColor, 1.0);
-    }
-    
     // Unpack G-buffer data
     let albedo = albedoMetallic.rgb;
     let metallic = albedoMetallic.a;
@@ -195,7 +187,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let viewDir = normalize(camera.cameraPosition - worldPos);
     let distanceToCamera = length(camera.cameraPosition - worldPos);
     
-    // Calculate lighting
+    // Always sample skybox for both sky and ambient lighting (avoids uniform control flow issues)
+    let skyboxDirection = viewDir;
+    let skyColor = textureSample(skyboxTexture, skyboxSampler, skyboxDirection).rgb;
+    let atmosphereColor = calculateAtmosphericScattering(viewDir, lighting.sunDirection);
+    let skyResult = skyColor + atmosphereColor;
+    
+    // Check if this is a skybox pixel (depth >= 1.0)
+    let isSkybox = depth >= 1.0;
+    
+    // Calculate lighting for geometry
     var finalColor = vec3<f32>(0.0);
     
     // Sun lighting (directional light)
@@ -236,5 +237,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let toneMappedColor = exposedColor / (exposedColor + 1.0); // Simple Reinhard tone mapping
     let gammaCorrectColor = pow(toneMappedColor, vec3<f32>(1.0 / lighting.gamma));
     
-    return vec4<f32>(gammaCorrectColor, 1.0);
+    // Select between skybox and lit geometry based on depth
+    let finalResult = select(gammaCorrectColor, skyResult, isSkybox);
+    
+    return vec4<f32>(finalResult, 1.0);
 }
