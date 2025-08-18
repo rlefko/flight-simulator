@@ -69,13 +69,13 @@ export class ShadowSystem {
 
         // Default shadow configuration
         this.shadowConfig = {
-            resolution: 2048,
-            cascadeCount: 4,
+            resolution: 1024, // Reduced from 2048 for performance
+            cascadeCount: 2, // Reduced from 4 for performance
             cascadeDistances: [100, 500, 2000, 10000], // Distances in meters
             biasConstant: 0.005,
             biasSlope: 2.0,
             softShadowRadius: 1.0,
-            maxDistance: 50000,
+            maxDistance: 10000, // Reduced for performance
             ...config,
         };
 
@@ -230,6 +230,7 @@ export class ShadowSystem {
         this.cascades = [];
 
         for (let i = 0; i < this.shadowConfig.cascadeCount; i++) {
+            // Only create one texture per cascade for shadow mapping
             const shadowMap = this.device.createTexture({
                 label: `Shadow Map Cascade ${i}`,
                 size: [this.shadowConfig.resolution, this.shadowConfig.resolution, 1],
@@ -237,18 +238,11 @@ export class ShadowSystem {
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             });
 
-            const depthTexture = this.device.createTexture({
-                label: `Shadow Depth Texture Cascade ${i}`,
-                size: [this.shadowConfig.resolution, this.shadowConfig.resolution, 1],
-                format: 'depth32float',
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            });
-
             const renderPassDescriptor: GPURenderPassDescriptor = {
                 label: `Shadow Render Pass Cascade ${i}`,
                 colorAttachments: [],
                 depthStencilAttachment: {
-                    view: depthTexture.createView(),
+                    view: shadowMap.createView(), // Use the shadow map directly
                     depthClearValue: 1.0,
                     depthLoadOp: 'clear',
                     depthStoreOp: 'store',

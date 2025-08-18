@@ -39,7 +39,7 @@ export enum CameraMode {
 
 export class Camera {
     // Core camera properties
-    private position = new Vector3(4096, 500, 4096); // Center of tile (0,0)
+    private position = new Vector3(4096, 1500, 4096); // Higher above terrain for better initial view
     private target = new Vector3(4096, 0, 4096); // Look at ground below
     private up = new Vector3(0, 1, 0); // Y is up
     private forward = new Vector3(0, 0, -1);

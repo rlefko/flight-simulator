@@ -163,9 +163,9 @@ export class TerrainGenerator {
         this.heightmapGenerator = new HeightmapGenerator(this.config.seed);
         this.streaming = new TerrainStreaming(this.config.seed);
 
-        // Initialize with a grid of root tiles to cover more area
-        // Create a 5x5 grid of root tiles to ensure coverage
-        const gridSize = 5; // 5x5 grid
+        // Initialize with a smaller grid for better performance
+        // Create a 3x3 grid of root tiles
+        const gridSize = 3; // 3x3 grid for better performance
         const centerOffset = Math.floor(gridSize / 2);
 
         // Create a virtual root that holds our tile grid

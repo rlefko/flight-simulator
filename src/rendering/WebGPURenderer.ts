@@ -728,6 +728,12 @@ export class WebGPURenderer {
         // Update stats every second
         if (now - this.lastStatsUpdate >= 1000) {
             const fps = this.frameCount / ((now - this.lastStatsUpdate) / 1000);
+
+            // Log FPS to console
+            console.log(
+                `🎮 FPS: ${fps.toFixed(1)} | Frame Time: ${this.renderStats.frameTime.toFixed(2)}ms | Triangles: ${this.renderStats.triangles} | Draw Calls: ${this.renderStats.drawCalls}`
+            );
+
             this.eventBus.emit('renderer:stats', {
                 fps,
                 ...this.renderStats,

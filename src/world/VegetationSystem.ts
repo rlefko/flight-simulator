@@ -201,7 +201,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1500,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 800,
+            density: 200, // Reduced from 800 for performance
             minHeight: 12,
             maxHeight: 25,
             canopyRadius: 8,
@@ -219,7 +219,7 @@ export class VegetationSystem {
             minElevation: 500,
             maxElevation: 3000,
             maxSlope: Math.PI / 4, // 45 degrees
-            density: 1200,
+            density: 300, // Reduced from 1200 for performance
             minHeight: 15,
             maxHeight: 35,
             canopyRadius: 5,
