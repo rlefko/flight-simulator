@@ -321,8 +321,9 @@ export class ShadowSystem {
         const cameraUp = camera.getUp();
         const cameraRight = camera.getRight();
 
-        const fov = camera.getFOV();
-        const aspect = camera.getAspect();
+        const config = camera.getConfiguration();
+        const fov = config.fov;
+        const aspect = config.aspectRatio;
 
         const tanHalfFov = Math.tan(fov * 0.5);
         const nearHeight = 2.0 * tanHalfFov * near;
