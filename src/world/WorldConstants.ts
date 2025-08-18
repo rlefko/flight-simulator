@@ -61,12 +61,12 @@ export const LOD_CONFIG = {
     /** Distance thresholds for terrain LOD levels (meters) */
     TERRAIN_DISTANCES: [
         0, // Level 0: Highest detail
-        1000, // Level 1: High detail
-        4000, // Level 2: Medium-high detail
-        16000, // Level 3: Medium detail
-        64000, // Level 4: Low-medium detail
-        256000, // Level 5: Low detail
-        1024000, // Level 6+: Lowest detail
+        10000, // Level 1: High detail - Changed from 1000 to ensure root tile is visible
+        20000, // Level 2: Medium-high detail
+        40000, // Level 3: Medium detail
+        80000, // Level 4: Low-medium detail
+        160000, // Level 5: Low detail
+        320000, // Level 6+: Lowest detail
     ],
 
     /** Texture resolution per LOD level */
@@ -126,7 +126,7 @@ export const NOISE_CONFIG = {
 
     /** Erosion simulation parameters */
     EROSION: {
-        iterations: 10,
+        iterations: 0, // Disable erosion for now to avoid potential NaN issues
         dropletLifetime: 30,
         inertia: 0.05,
         sedimentCapacityFactor: 4,

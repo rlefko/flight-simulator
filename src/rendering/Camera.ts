@@ -39,58 +39,62 @@ export enum CameraMode {
 
 export class Camera {
     // Core camera properties
-    private position = new Vector3(0, 10, 20);
-    private target = new Vector3(0, 0, 0);
+    private position = new Vector3(0, 500, 0); // Start higher and centered
+    private target = new Vector3(0, 0, 0); // Look down at origin
     private up = new Vector3(0, 1, 0);
     private forward = new Vector3(0, 0, -1);
     private right = new Vector3(1, 0, 0);
-    
+
+    // Free camera rotation (initial yaw=0 faces negative Z, which is forward)
+    private yaw = 0; // Rotation around Y axis (left/right)
+    private pitch = -Math.PI / 4; // Looking down 45 degrees initially
+
     // Matrices
     private viewMatrix = new Matrix4();
     private projectionMatrix = new Matrix4();
     private viewProjectionMatrix = new Matrix4();
     private inverseViewMatrix = new Matrix4();
     private inverseProjectionMatrix = new Matrix4();
-    
+
     // Configuration
     private config: CameraConfiguration;
     private controls: FlightCameraControls;
-    private mode = CameraMode.EXTERNAL;
-    
+    private mode = CameraMode.FREE; // Start in free mode
+
     // View frustum for culling
     private frustum: ViewFrustum;
-    
+
     // Smooth interpolation
     private targetPosition = new Vector3();
     private targetTarget = new Vector3();
     private currentVelocity = new Vector3();
     private targetVelocity = new Vector3();
-    
+
     // Flight-specific properties
     private bankAngle = 0; // Roll angle for flight dynamics
     private pitchAngle = 0;
     private yawAngle = 0;
-    
+
     // External camera properties (chase/orbit)
     private distance = 50;
     private elevation = 10; // Degrees above horizon
-    private azimuth = 0;    // Degrees around target
-    
+    private azimuth = 0; // Degrees around target
+
     // Shake/vibration effects
     private shakeIntensity = 0;
     private shakeDecay = 0.95;
     private shakeOffset = new Vector3();
-    
+
     private isDirty = true;
-    
+
     constructor(aspectRatio: number) {
         this.config = {
-            fov: 75 * DEG_TO_RAD,
-            near: 0.1,
-            far: 100000, // 100km for flight sim
+            fov: 110 * DEG_TO_RAD, // Wide FOV for better terrain visibility
+            near: 1.0, // Increased to reduce z-fighting
+            far: 50000, // 50km is plenty for terrain viewing
             aspectRatio,
         };
-        
+
         this.controls = {
             panSensitivity: 0.005,
             tiltSensitivity: 0.005,
@@ -101,63 +105,80 @@ export class Camera {
             minDistance: 5,
             maxDistance: 1000,
         };
-        
+
         this.frustum = {
-            left: 0, right: 0, top: 0, bottom: 0,
-            near: this.config.near, far: this.config.far,
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            near: this.config.near,
+            far: this.config.far,
             planes: new Array(6).fill(null).map(() => new Float32Array(4)),
         };
-        
+
         this.targetPosition.copy(this.position);
         this.targetTarget.copy(this.target);
-        
+
+        // Initialize free camera vectors properly
+        this.updateFreeCameraVectors();
         this.updateMatrices();
     }
-    
+
     update(deltaTime: number): void {
         if (this.mode === CameraMode.EXTERNAL || this.mode === CameraMode.CHASE) {
             this.updateExternalCamera(deltaTime);
+            this.updateSmoothMovement(deltaTime);
+        } else if (this.mode === CameraMode.FREE) {
+            // In free mode, don't use smoothing - direct control
+            this.isDirty = true;
+        } else {
+            this.updateSmoothMovement(deltaTime);
         }
-        
-        this.updateSmoothMovement(deltaTime);
+
         this.updateShake(deltaTime);
-        
+
         if (this.isDirty) {
             this.updateMatrices();
             this.updateFrustum();
             this.isDirty = false;
         }
     }
-    
+
     private updateExternalCamera(deltaTime: number): void {
         // Calculate orbital position around target
         const elevationRad = this.elevation * DEG_TO_RAD;
         const azimuthRad = this.azimuth * DEG_TO_RAD;
-        
+
         const horizontalDistance = this.distance * Math.cos(elevationRad);
         const height = this.distance * Math.sin(elevationRad);
-        
+
         this.targetPosition.set(
             this.target.x + horizontalDistance * Math.sin(azimuthRad),
             this.target.y + height,
             this.target.z + horizontalDistance * Math.cos(azimuthRad)
         );
     }
-    
+
     private updateSmoothMovement(deltaTime: number): void {
         // Smooth position interpolation
         const positionDelta = Vector3.subtract(this.targetPosition, this.position);
-        const smoothedDelta = Vector3.multiplyScalar(positionDelta, this.controls.smoothingFactor * deltaTime * 60);
+        const smoothedDelta = Vector3.multiplyScalar(
+            positionDelta,
+            this.controls.smoothingFactor * deltaTime * 60
+        );
         this.position.add(smoothedDelta);
-        
+
         // Smooth target interpolation
         const targetDelta = Vector3.subtract(this.targetTarget, this.target);
-        const smoothedTargetDelta = Vector3.multiplyScalar(targetDelta, this.controls.smoothingFactor * deltaTime * 60);
+        const smoothedTargetDelta = Vector3.multiplyScalar(
+            targetDelta,
+            this.controls.smoothingFactor * deltaTime * 60
+        );
         this.target.add(smoothedTargetDelta);
-        
+
         this.isDirty = true;
     }
-    
+
     private updateShake(deltaTime: number): void {
         if (this.shakeIntensity > 0.001) {
             // Generate random shake offset
@@ -166,27 +187,27 @@ export class Camera {
                 (Math.random() - 0.5) * this.shakeIntensity,
                 (Math.random() - 0.5) * this.shakeIntensity
             );
-            
+
             this.shakeIntensity *= this.shakeDecay;
         } else {
             this.shakeOffset.set(0, 0, 0);
             this.shakeIntensity = 0;
         }
     }
-    
+
     private updateMatrices(): void {
         // Apply shake to final position
         const shakenPosition = Vector3.add(this.position, this.shakeOffset);
-        
+
         // Update view vectors
         this.forward = Vector3.subtract(this.target, shakenPosition).normalize();
         this.right = Vector3.cross(this.forward, this.up).normalize();
         this.up = Vector3.cross(this.right, this.forward).normalize();
-        
+
         // Build view matrix (lookAt)
         this.viewMatrix.identity();
         this.viewMatrix.lookAt(shakenPosition, this.target, this.up);
-        
+
         // Build projection matrix
         this.projectionMatrix.identity();
         this.projectionMatrix.perspective(
@@ -195,65 +216,67 @@ export class Camera {
             this.config.near,
             this.config.far
         );
-        
+
         // Combine matrices
         this.viewProjectionMatrix = Matrix4.multiply(this.projectionMatrix, this.viewMatrix);
-        
+
         // Calculate inverse matrices for various rendering needs
         this.inverseViewMatrix = this.viewMatrix.clone().invert();
         this.inverseProjectionMatrix = this.projectionMatrix.clone().invert();
     }
-    
+
     private updateFrustum(): void {
         // Extract frustum planes from view-projection matrix
         const m = this.viewProjectionMatrix.elements;
-        
+
         // Left plane
         this.frustum.planes[0][0] = m[3] + m[0];
         this.frustum.planes[0][1] = m[7] + m[4];
         this.frustum.planes[0][2] = m[11] + m[8];
         this.frustum.planes[0][3] = m[15] + m[12];
-        
+
         // Right plane
         this.frustum.planes[1][0] = m[3] - m[0];
         this.frustum.planes[1][1] = m[7] - m[4];
         this.frustum.planes[1][2] = m[11] - m[8];
         this.frustum.planes[1][3] = m[15] - m[12];
-        
+
         // Bottom plane
         this.frustum.planes[2][0] = m[3] + m[1];
         this.frustum.planes[2][1] = m[7] + m[5];
         this.frustum.planes[2][2] = m[11] + m[9];
         this.frustum.planes[2][3] = m[15] + m[13];
-        
+
         // Top plane
         this.frustum.planes[3][0] = m[3] - m[1];
         this.frustum.planes[3][1] = m[7] - m[5];
         this.frustum.planes[3][2] = m[11] - m[9];
         this.frustum.planes[3][3] = m[15] - m[13];
-        
+
         // Near plane
         this.frustum.planes[4][0] = m[3] + m[2];
         this.frustum.planes[4][1] = m[7] + m[6];
         this.frustum.planes[4][2] = m[11] + m[10];
         this.frustum.planes[4][3] = m[15] + m[14];
-        
+
         // Far plane
         this.frustum.planes[5][0] = m[3] - m[2];
         this.frustum.planes[5][1] = m[7] - m[6];
         this.frustum.planes[5][2] = m[11] - m[10];
         this.frustum.planes[5][3] = m[15] - m[14];
-        
+
         // Normalize all planes
         for (let i = 0; i < 6; i++) {
             const plane = this.frustum.planes[i];
-            const length = Math.sqrt(plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2]);
+            const length = Math.sqrt(
+                plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2]
+            );
             plane[0] /= length;
             plane[1] /= length;
             plane[2] /= length;
             plane[3] /= length;
         }
-        
+
         // Update frustum bounds for AABB tests
         const tanFov = Math.tan(this.config.fov * 0.5);
         this.frustum.top = this.config.near * tanFov;
@@ -261,49 +284,54 @@ export class Camera {
         this.frustum.right = this.frustum.top * this.config.aspectRatio;
         this.frustum.left = -this.frustum.right;
     }
-    
+
     // Camera controls
     setPosition(position: Vector3): void {
         this.targetPosition.copy(position);
         this.isDirty = true;
     }
-    
+
     setTarget(target: Vector3): void {
         this.targetTarget.copy(target);
         this.isDirty = true;
     }
-    
+
     setMode(mode: CameraMode): void {
         this.mode = mode;
         this.isDirty = true;
     }
-    
+
     // External camera controls
     orbit(deltaAzimuth: number, deltaElevation: number): void {
         this.azimuth += deltaAzimuth * this.controls.panSensitivity;
-        this.elevation += deltaElevation * this.controls.tiltSensitivity * (this.controls.invertY ? -1 : 1);
-        
+        this.elevation +=
+            deltaElevation * this.controls.tiltSensitivity * (this.controls.invertY ? -1 : 1);
+
         // Clamp elevation to prevent flipping
-        this.elevation = clamp(this.elevation, -this.controls.maxTiltAngle * (180 / Math.PI), this.controls.maxTiltAngle * (180 / Math.PI));
-        
+        this.elevation = clamp(
+            this.elevation,
+            -this.controls.maxTiltAngle * (180 / Math.PI),
+            this.controls.maxTiltAngle * (180 / Math.PI)
+        );
+
         // Wrap azimuth
         this.azimuth = ((this.azimuth % 360) + 360) % 360;
-        
+
         this.isDirty = true;
     }
-    
+
     zoom(delta: number): void {
         this.distance *= 1 + delta * this.controls.zoomSensitivity;
         this.distance = clamp(this.distance, this.controls.minDistance, this.controls.maxDistance);
         this.isDirty = true;
     }
-    
+
     // Flight-specific methods
     setFlightAngles(pitch: number, yaw: number, bank: number): void {
         this.pitchAngle = pitch;
         this.yawAngle = yaw;
         this.bankAngle = bank;
-        
+
         // Update camera up vector based on bank angle for realistic flight feel
         if (this.mode === CameraMode.COCKPIT || this.mode === CameraMode.CHASE) {
             const bankRad = bank * DEG_TO_RAD;
@@ -311,22 +339,22 @@ export class Camera {
             this.isDirty = true;
         }
     }
-    
+
     addShake(intensity: number): void {
         this.shakeIntensity = Math.min(this.shakeIntensity + intensity, 5.0);
     }
-    
+
     // Configuration
     setFOV(fov: number): void {
         this.config.fov = fov * DEG_TO_RAD;
         this.isDirty = true;
     }
-    
+
     setAspectRatio(aspectRatio: number): void {
         this.config.aspectRatio = aspectRatio;
         this.isDirty = true;
     }
-    
+
     setNearFar(near: number, far: number): void {
         this.config.near = near;
         this.config.far = far;
@@ -334,80 +362,86 @@ export class Camera {
         this.frustum.far = far;
         this.isDirty = true;
     }
-    
+
     // Frustum culling
     isPointInFrustum(point: Vector3): boolean {
         for (let i = 0; i < 6; i++) {
             const plane = this.frustum.planes[i];
-            const distance = plane[0] * point.x + plane[1] * point.y + plane[2] * point.z + plane[3];
+            const distance =
+                plane[0] * point.x + plane[1] * point.y + plane[2] * point.z + plane[3];
             if (distance < 0) return false;
         }
         return true;
     }
-    
+
     isSphereInFrustum(center: Vector3, radius: number): boolean {
         for (let i = 0; i < 6; i++) {
             const plane = this.frustum.planes[i];
-            const distance = plane[0] * center.x + plane[1] * center.y + plane[2] * center.z + plane[3];
+            const distance =
+                plane[0] * center.x + plane[1] * center.y + plane[2] * center.z + plane[3];
             if (distance < -radius) return false;
         }
         return true;
     }
-    
+
     isAABBInFrustum(min: Vector3, max: Vector3): boolean {
         for (let i = 0; i < 6; i++) {
             const plane = this.frustum.planes[i];
-            
+
             // Find the positive vertex (the vertex most aligned with the plane normal)
             const positiveVertex = new Vector3(
                 plane[0] >= 0 ? max.x : min.x,
                 plane[1] >= 0 ? max.y : min.y,
                 plane[2] >= 0 ? max.z : min.z
             );
-            
+
             // If the positive vertex is outside the plane, the box is outside
-            const distance = plane[0] * positiveVertex.x + plane[1] * positiveVertex.y + 
-                           plane[2] * positiveVertex.z + plane[3];
+            const distance =
+                plane[0] * positiveVertex.x +
+                plane[1] * positiveVertex.y +
+                plane[2] * positiveVertex.z +
+                plane[3];
             if (distance < 0) return false;
         }
         return true;
     }
-    
+
     // Screen-space projection
     worldToScreen(worldPos: Vector3, screenWidth: number, screenHeight: number): Vector3 {
-        const clipPos = this.viewProjectionMatrix.multiplyVector4([worldPos.x, worldPos.y, worldPos.z, 1]);
-        
+        const clipPos = this.viewProjectionMatrix.multiplyVector4([
+            worldPos.x,
+            worldPos.y,
+            worldPos.z,
+            1,
+        ]);
+
         if (clipPos[3] <= 0) {
             return new Vector3(-1, -1, -1); // Behind camera
         }
-        
-        const ndcPos = [
-            clipPos[0] / clipPos[3],
-            clipPos[1] / clipPos[3],
-            clipPos[2] / clipPos[3]
-        ];
-        
+
+        const ndcPos = [clipPos[0] / clipPos[3], clipPos[1] / clipPos[3], clipPos[2] / clipPos[3]];
+
         const screenPos = new Vector3(
             (ndcPos[0] + 1) * 0.5 * screenWidth,
             (1 - ndcPos[1]) * 0.5 * screenHeight,
             ndcPos[2]
         );
-        
+
         return screenPos;
     }
-    
+
     screenToWorld(screenPos: Vector3, screenWidth: number, screenHeight: number): Vector3 {
         const ndcPos = [
             (screenPos.x / screenWidth) * 2 - 1,
             1 - (screenPos.y / screenHeight) * 2,
             screenPos.z * 2 - 1,
-            1
+            1,
         ];
-        
+
         const worldPos = this.inverseViewMatrix.multiplyVector4(
             this.inverseProjectionMatrix.multiplyVector4(ndcPos)
         );
-        
+
         if (worldPos[3] !== 0) {
             return new Vector3(
                 worldPos[0] / worldPos[3],
@@ -415,34 +449,148 @@ export class Camera {
                 worldPos[2] / worldPos[3]
             );
         }
-        
+
         return new Vector3(0, 0, 0);
     }
-    
+
     // Getters
-    getPosition(): Vector3 { return this.position.clone(); }
-    getTarget(): Vector3 { return this.target.clone(); }
-    getForward(): Vector3 { return this.forward.clone(); }
-    getRight(): Vector3 { return this.right.clone(); }
-    getUp(): Vector3 { return this.up.clone(); }
-    
-    getViewMatrix(): Matrix4 { return this.viewMatrix.clone(); }
-    getProjectionMatrix(): Matrix4 { return this.projectionMatrix.clone(); }
-    getViewProjectionMatrix(): Matrix4 { return this.viewProjectionMatrix.clone(); }
-    getInverseViewMatrix(): Matrix4 { return this.inverseViewMatrix.clone(); }
-    
-    getFrustum(): ViewFrustum { return { ...this.frustum }; }
-    getMode(): CameraMode { return this.mode; }
-    getConfiguration(): CameraConfiguration { return { ...this.config }; }
-    getControls(): FlightCameraControls { return { ...this.controls }; }
-    
+    getPosition(): Vector3 {
+        return this.position.clone();
+    }
+    getTarget(): Vector3 {
+        return this.target.clone();
+    }
+    getForward(): Vector3 {
+        return this.forward.clone();
+    }
+    getRight(): Vector3 {
+        return this.right.clone();
+    }
+    getUp(): Vector3 {
+        return this.up.clone();
+    }
+
+    getViewMatrix(): Matrix4 {
+        return this.viewMatrix.clone();
+    }
+    getProjectionMatrix(): Matrix4 {
+        return this.projectionMatrix.clone();
+    }
+    getViewProjectionMatrix(): Matrix4 {
+        return this.viewProjectionMatrix.clone();
+    }
+    getInverseViewMatrix(): Matrix4 {
+        return this.inverseViewMatrix.clone();
+    }
+
+    getFrustum(): ViewFrustum {
+        return { ...this.frustum };
+    }
+    getMode(): CameraMode {
+        return this.mode;
+    }
+    getConfiguration(): CameraConfiguration {
+        return { ...this.config };
+    }
+    getControls(): FlightCameraControls {
+        return { ...this.controls };
+    }
+
     // Distance and angle getters for external camera
-    getDistance(): number { return this.distance; }
-    getElevation(): number { return this.elevation; }
-    getAzimuth(): number { return this.azimuth; }
-    
+    getDistance(): number {
+        return this.distance;
+    }
+    getElevation(): number {
+        return this.elevation;
+    }
+    getAzimuth(): number {
+        return this.azimuth;
+    }
+
     // Flight angles
-    getPitchAngle(): number { return this.pitchAngle; }
-    getYawAngle(): number { return this.yawAngle; }
-    getBankAngle(): number { return this.bankAngle; }
+    getPitchAngle(): number {
+        return this.pitchAngle;
+    }
+    getYawAngle(): number {
+        return this.yawAngle;
+    }
+    getBankAngle(): number {
+        return this.bankAngle;
+    }
+
+    // Free camera controls
+    setYaw(yaw: number): void {
+        this.yaw = yaw;
+        this.updateFreeCameraVectors();
+    }
+
+    setPitch(pitch: number): void {
+        // Clamp pitch to prevent flipping
+        this.pitch = clamp(pitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+        this.updateFreeCameraVectors();
+    }
+
+    rotate(deltaYaw: number, deltaPitch: number): void {
+        // Add some sanity checks
+        if (!isFinite(deltaYaw) || !isFinite(deltaPitch)) {
+            console.warn('Invalid rotation values:', deltaYaw, deltaPitch);
+            return;
+        }
+
+        this.yaw += deltaYaw;
+        this.pitch = clamp(this.pitch + deltaPitch, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+        this.updateFreeCameraVectors();
+        this.isDirty = true;
+    }
+
+    moveForward(distance: number): void {
+        // Move only on XZ plane based on yaw
+        const moveDir = new Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+        this.position.add(moveDir.multiplyScalar(distance));
+    }
+
+    moveRight(distance: number): void {
+        // Move perpendicular to forward on XZ plane
+        const moveDir = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+        this.position.add(moveDir.multiplyScalar(distance));
+    }
+
+    moveUp(distance: number): void {
+        this.position.y += distance;
+    }
+
+    private updateFreeCameraVectors(): void {
+        // Calculate forward vector from yaw and pitch
+        this.forward
+            .set(
+                -Math.sin(this.yaw) * Math.cos(this.pitch),
+                Math.sin(this.pitch),
+                -Math.cos(this.yaw) * Math.cos(this.pitch)
+            )
+            .normalize();
+
+        // Right vector is perpendicular to forward and world up
+        this.right
+            .copy(this.forward)
+            .cross(new Vector3(0, 1, 0))
+            .normalize();
+
+        // Recalculate up vector
+        this.up.copy(this.right).cross(this.forward).normalize();
+
+        // Update target based on forward direction
+        this.target.copy(this.position).add(this.forward);
+    }
+
+    setFreeCamera(): void {
+        this.mode = CameraMode.FREE;
+        this.updateFreeCameraVectors();
+    }
+
+    getYaw(): number {
+        return this.yaw;
+    }
+    getPitch(): number {
+        return this.pitch;
+    }
 }

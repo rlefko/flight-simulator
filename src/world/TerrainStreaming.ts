@@ -4,6 +4,7 @@ import {
     STREAMING_CONFIG,
     worldToTileCoord,
     getTileSizeForLOD,
+    getMeshResolutionForLOD,
 } from './WorldConstants';
 import { TerrainTile, TerrainTileState, type TerrainData } from './TerrainTile';
 import { HeightmapGenerator } from './HeightmapGenerator';
@@ -506,40 +507,50 @@ export class TerrainStreaming {
 
     private startTileGeneration(request: TileRequest): void {
         const tile = request.tile;
-
-        // Find available worker
-        const worker = this.workers[0]; // Simplified worker selection
-
-        const message: WorkerMessage = {
-            type: 'generate',
-            tileId: tile.id,
-            x: tile.x,
-            z: tile.z,
-            level: tile.level,
-        };
-
         tile.state = TerrainTileState.GENERATING;
-        worker.postMessage(message);
+
+        // Generate terrain data inline (simulated worker is broken)
+        console.log(
+            'Generating terrain data for tile:',
+            tile.id,
+            'at',
+            tile.x,
+            tile.z,
+            'level',
+            tile.level
+        );
+
+        try {
+            // Generate the terrain data
+            const terrainData = this.heightmapGenerator.generateTerrainData(
+                tile.x,
+                tile.z,
+                tile.level,
+                getMeshResolutionForLOD(tile.level),
+                getTileSizeForLOD(tile.level)
+            );
+
+            // Handle the generated data immediately
+            setTimeout(() => {
+                this.handleTerrainGenerated(tile.id, terrainData);
+            }, 0);
+        } catch (error) {
+            console.error('Error generating terrain:', error);
+            this.handleGenerationError(tile.id, error as Error);
+        }
     }
 
     private handleTerrainGenerated(tileId: string, terrainData: any): void {
         const request = this.activeRequests.get(tileId);
-        if (!request) return;
+        if (!request) {
+            console.warn('No active request for tile:', tileId);
+            return;
+        }
 
         const tile = request.tile;
 
-        // Convert serialized data back to typed arrays
-        const convertedData: TerrainData = {
-            heightmap: new Float32Array(terrainData.heightmap),
-            normals: terrainData.normals ? new Float32Array(terrainData.normals) : undefined,
-            materials: terrainData.materials ? new Uint8Array(terrainData.materials) : undefined,
-            uvs: terrainData.uvs ? new Float32Array(terrainData.uvs) : undefined,
-            waterMask: terrainData.waterMask ? new Uint8Array(terrainData.waterMask) : undefined,
-            slopes: terrainData.slopes ? new Float32Array(terrainData.slopes) : undefined,
-            textureIndices: terrainData.textureIndices
-                ? new Uint8Array(terrainData.textureIndices)
-                : undefined,
-        };
+        // Data is already in correct format (not from worker)
+        const convertedData: TerrainData = terrainData;
 
         tile.setTerrainData(convertedData);
         tile.state = TerrainTileState.LOADED;
@@ -586,7 +597,10 @@ export class TerrainStreaming {
     }
 
     private generateMeshAsync(tile: TerrainTile): void {
-        if (!tile.terrainData) return;
+        if (!tile.terrainData) {
+            console.warn('generateMeshAsync: No terrain data for tile', tile.id);
+            return;
+        }
 
         // Generate mesh data
         const meshData = TerrainMesh.generateMesh(tile.terrainData, tile.size, {
@@ -595,6 +609,17 @@ export class TerrainStreaming {
 
         tile.setMeshData(meshData);
         this.stats.generatedThisFrame++;
+
+        if (this.frameCount % 60 === 0) {
+            console.log(
+                'TerrainStreaming: Generated mesh for tile',
+                tile.id,
+                'vertices:',
+                meshData.vertexCount,
+                'triangles:',
+                meshData.triangleCount
+            );
+        }
     }
 
     private calculatePredictivePriority(distance: number, level: number): TilePriority {

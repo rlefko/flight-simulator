@@ -154,9 +154,9 @@ export class TerrainGenerator {
             maxLODLevels: TERRAIN_CONFIG.MAX_LOD_LEVELS,
             viewDistance: LOD_CONFIG.CULL_DISTANCE,
             errorThreshold: 1.0,
-            enableFrustumCulling: true,
+            enableFrustumCulling: false, // Disable frustum culling for debugging
             enablePredictiveLoading: false, // Disabled to prevent excessive tile requests
-            adaptiveLOD: true,
+            adaptiveLOD: false, // Use simple distance-based LOD for debugging
             ...config,
         };
 
@@ -166,6 +166,21 @@ export class TerrainGenerator {
         // Initialize root quadtree node
         const rootTile = new TerrainTile(0, 0, 0);
         this.quadTree = new QuadTreeNode(rootTile);
+
+        console.log(
+            'TerrainGenerator: Created root tile:',
+            rootTile.id,
+            'bounds:',
+            rootTile.worldBounds,
+            'center:',
+            rootTile.center.x,
+            rootTile.center.y,
+            rootTile.center.z
+        );
+
+        // Force the root tile to be visible initially
+        rootTile.isVisible = true;
+        rootTile.distanceToCamera = 100; // Pretend it's close
 
         this.errorThreshold = this.config.errorThreshold;
     }
@@ -181,6 +196,18 @@ export class TerrainGenerator {
         const frameStart = performance.now();
         this.currentFrame++;
 
+        // Debug logging
+        if (this.currentFrame % 60 === 0) {
+            console.log(
+                'TerrainGenerator.update - Frame:',
+                this.currentFrame,
+                'Camera:',
+                cameraPosition.x.toFixed(0),
+                cameraPosition.y.toFixed(0),
+                cameraPosition.z.toFixed(0)
+            );
+        }
+
         // Update camera tracking
         this.updateCameraTracking(cameraPosition, deltaTime);
 
@@ -195,6 +222,15 @@ export class TerrainGenerator {
 
         // Update visible nodes
         this.updateVisibility();
+
+        if (this.currentFrame % 60 === 0) {
+            console.log(
+                'Visible nodes:',
+                this.visibleNodes.length,
+                'Renderable nodes:',
+                this.renderableNodes.length
+            );
+        }
 
         // Update predictive loading if enabled (only after initial tiles are loaded)
         if (this.config.enablePredictiveLoading && this.currentFrame > 60) {
@@ -213,9 +249,33 @@ export class TerrainGenerator {
      * Get tiles ready for rendering
      */
     public getRenderableTiles(): TerrainTile[] {
-        return this.renderableNodes
+        const readyTiles = this.renderableNodes
             .filter((node) => node.tile.isReadyForRender())
             .map((node) => node.tile);
+
+        // Debug logging
+        if (this.currentFrame % 60 === 0 && readyTiles.length > 0) {
+            const firstTile = readyTiles[0];
+            console.log(
+                'First tile bounds:',
+                'X:',
+                firstTile.worldBounds.minX,
+                'to',
+                firstTile.worldBounds.maxX,
+                'Z:',
+                firstTile.worldBounds.minZ,
+                'to',
+                firstTile.worldBounds.maxZ
+            );
+            console.log(
+                'First tile center:',
+                firstTile.center.x,
+                firstTile.center.y,
+                firstTile.center.z
+            );
+        }
+
+        return readyTiles;
     }
 
     /**
@@ -369,11 +429,23 @@ export class TerrainGenerator {
         if (
             node.isLeaf &&
             tile.state === TerrainTileState.UNLOADED &&
-            tile.distanceToCamera < 50000
+            tile.distanceToCamera < 500000 // Increased from 50000
         ) {
             const priority = this.calculateTilePriority(tile);
+            console.log(
+                'Requesting tile:',
+                tile.id,
+                'priority:',
+                priority,
+                'distance:',
+                tile.distanceToCamera.toFixed(0),
+                'state:',
+                tile.state
+            );
+
             this.streaming.requestTile(tile, priority, (loadedTile) => {
                 node.lastUpdateFrame = this.currentFrame;
+                console.log('Tile loaded callback:', loadedTile.id, 'state:', loadedTile.state);
             });
         }
     }
@@ -382,7 +454,20 @@ export class TerrainGenerator {
         if (!this.config.adaptiveLOD) {
             // Use simple distance-based LOD
             const lodDistance = LOD_CONFIG.TERRAIN_DISTANCES[tile.level + 1] || Infinity;
-            return tile.distanceToCamera < lodDistance;
+            const shouldSubdivide = tile.distanceToCamera < lodDistance;
+
+            if (this.currentFrame % 120 === 0 && tile.level === 0) {
+                console.log(
+                    'Should subdivide root tile?',
+                    shouldSubdivide,
+                    'distance:',
+                    tile.distanceToCamera.toFixed(0),
+                    'threshold:',
+                    lodDistance
+                );
+            }
+
+            return shouldSubdivide;
         }
 
         // Adaptive LOD based on terrain complexity and viewing angle
@@ -447,6 +532,15 @@ export class TerrainGenerator {
 
             if (tile.isReadyForRender()) {
                 this.renderableNodes.push(node);
+            } else if (this.currentFrame % 60 === 0) {
+                console.log(
+                    'Tile not ready:',
+                    tile.id,
+                    'state:',
+                    tile.state,
+                    'distance:',
+                    tile.distanceToCamera.toFixed(0)
+                );
             }
         } else {
             // Recursively collect from children

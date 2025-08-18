@@ -213,12 +213,14 @@ export class TerrainTile {
             this.size = 1000; // Default fallback
         }
 
-        // Calculate world bounds
+        // Calculate world bounds - center the tile grid at origin
+        // For level 0, tile (0,0) should be centered at origin
+        const offset = this.size / 2;
         this.worldBounds = {
-            minX: x * this.size,
-            maxX: (x + 1) * this.size,
-            minZ: z * this.size,
-            maxZ: (z + 1) * this.size,
+            minX: x * this.size - offset,
+            maxX: (x + 1) * this.size - offset,
+            minZ: z * this.size - offset,
+            maxZ: (z + 1) * this.size - offset,
         };
 
         // Calculate center position

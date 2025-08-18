@@ -26,6 +26,7 @@ export interface InputState {
     keys: Map<string, boolean>;
     mousePosition: { x: number; y: number };
     mouseButtons: Map<number, boolean>;
+    mouseDelta: { x: number; y: number };
     gamepadAxes: Map<number, number>;
     gamepadButtons: Map<number, number>;
 }
@@ -37,6 +38,7 @@ export class InputManager {
         keys: new Map(),
         mousePosition: { x: 0, y: 0 },
         mouseButtons: new Map(),
+        mouseDelta: { x: 0, y: 0 },
         gamepadAxes: new Map(),
         gamepadButtons: new Map(),
     };
@@ -107,13 +109,20 @@ export class InputManager {
 
     public getInputState(): InputState {
         // Create deep copy of the input state to avoid reference issues
-        return {
+        const state = {
             keys: new Map(this.inputState.keys),
             mousePosition: { ...this.inputState.mousePosition },
             mouseButtons: new Map(this.inputState.mouseButtons),
+            mouseDelta: { ...this.inputState.mouseDelta },
             gamepadAxes: new Map(this.inputState.gamepadAxes),
             gamepadButtons: new Map(this.inputState.gamepadButtons),
         };
+
+        // Clear mouse delta after reading (it's per-frame)
+        this.inputState.mouseDelta.x = 0;
+        this.inputState.mouseDelta.y = 0;
+
+        return state;
     }
 
     private setupEventListeners(): void {
@@ -142,8 +151,16 @@ export class InputManager {
     }
 
     private handleMouseMove(event: MouseEvent): void {
-        this.inputState.mousePosition.x = event.x;
-        this.inputState.mousePosition.y = event.y;
+        if (event.isPointerLocked) {
+            // When pointer is locked, x/y are actually deltas - accumulate them
+            this.inputState.mouseDelta.x += event.x;
+            this.inputState.mouseDelta.y += event.y;
+        } else {
+            // Normal mouse position
+            this.inputState.mousePosition.x = event.x;
+            this.inputState.mousePosition.y = event.y;
+            // Don't accumulate deltas when not locked - they're unreliable
+        }
     }
 
     private handleMouseDown(event: MouseEvent): void {

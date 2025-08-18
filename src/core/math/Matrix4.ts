@@ -515,6 +515,63 @@ export class Matrix4 {
         return result;
     }
 
+    makeTranslation(x: number, y: number, z: number): this {
+        this.set(1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z, 0, 0, 0, 1);
+        return this;
+    }
+
+    makeScale(x: number, y: number, z: number): this {
+        this.set(x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1);
+        return this;
+    }
+
+    makeRotationX(theta: number): this {
+        const c = Math.cos(theta);
+        const s = Math.sin(theta);
+        this.set(1, 0, 0, 0, 0, c, -s, 0, 0, s, c, 0, 0, 0, 0, 1);
+        return this;
+    }
+
+    makeRotationY(theta: number): this {
+        const c = Math.cos(theta);
+        const s = Math.sin(theta);
+        this.set(c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, 0, 0, 0, 1);
+        return this;
+    }
+
+    makeRotationZ(theta: number): this {
+        const c = Math.cos(theta);
+        const s = Math.sin(theta);
+        this.set(c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+        return this;
+    }
+
+    translate(x: number, y: number, z: number): this {
+        const e = this.elements;
+        e[12] += e[0] * x + e[4] * y + e[8] * z;
+        e[13] += e[1] * x + e[5] * y + e[9] * z;
+        e[14] += e[2] * x + e[6] * y + e[10] * z;
+        e[15] += e[3] * x + e[7] * y + e[11] * z;
+        return this;
+    }
+
+    scale(x: number, y: number, z: number): this {
+        const e = this.elements;
+        e[0] *= x;
+        e[4] *= y;
+        e[8] *= z;
+        e[1] *= x;
+        e[5] *= y;
+        e[9] *= z;
+        e[2] *= x;
+        e[6] *= y;
+        e[10] *= z;
+        e[3] *= x;
+        e[7] *= y;
+        e[11] *= z;
+        return this;
+    }
+
     static multiply(a: Matrix4, b: Matrix4): Matrix4 {
         return new Matrix4().multiplyMatrices(a, b);
     }

@@ -112,10 +112,16 @@ export class Engine {
             const keyboardController = new KeyboardController();
             this.input.registerController(InputDeviceType.KEYBOARD, keyboardController);
 
+            // Register mouse controller
+            const { MouseController } = await import('@controls/MouseController');
+            const mouseController = new MouseController(this.config.canvas);
+            this.input.registerController(InputDeviceType.MOUSE, mouseController);
+
             this.input.start();
             console.log('Input system initialized');
 
             this.world = new WorldManager();
+            console.log('World system created:', !!this.world);
             await this.world.initialize();
             console.log('World system initialized');
 
@@ -284,32 +290,80 @@ export class Engine {
         if (this.input && this.renderer) {
             const camera = this.renderer.getCamera();
             if (camera) {
-                const speed = 500 * deltaTime; // Units per second
-                const position = camera.getPosition();
+                // Set to free camera mode if not already
+                if (camera.getMode() !== 'free') {
+                    camera.setFreeCamera();
+                }
 
-                // Simple WASD camera movement
+                // Clamp deltaTime to prevent huge jumps
+                const clampedDeltaTime = Math.min(deltaTime, 0.1);
+
+                // Dynamic movement speed - can be adjusted
+                const baseSpeed = 200; // Base units per second
+                const moveSpeed = baseSpeed * clampedDeltaTime;
+                const rotateSpeed = 30.0 * clampedDeltaTime; // 30 degrees per second
+
                 const inputState = this.input.getInputState();
+
+                // Movement controls (WASD + Space/Shift)
                 if (inputState.keys.has('KeyW')) {
-                    position.z -= speed;
+                    camera.moveForward(moveSpeed);
                 }
                 if (inputState.keys.has('KeyS')) {
-                    position.z += speed;
+                    camera.moveForward(-moveSpeed);
                 }
                 if (inputState.keys.has('KeyA')) {
-                    position.x -= speed;
+                    camera.moveRight(-moveSpeed);
                 }
                 if (inputState.keys.has('KeyD')) {
-                    position.x += speed;
+                    camera.moveRight(moveSpeed);
                 }
-                if (inputState.keys.has('KeyQ')) {
-                    position.y -= speed;
+                if (inputState.keys.has('Space')) {
+                    camera.moveUp(moveSpeed);
                 }
-                if (inputState.keys.has('KeyE')) {
-                    position.y += speed;
+                if (inputState.keys.has('ShiftLeft') || inputState.keys.has('ShiftRight')) {
+                    camera.moveUp(-moveSpeed);
                 }
 
-                camera.setPosition(position);
-                camera.setTarget(new Vector3(position.x, position.y - 100, position.z - 500));
+                // Rotation controls (Arrow keys) - use degrees for intuition
+                const degreesToRadians = Math.PI / 180;
+                const rotateSpeedRad = rotateSpeed * degreesToRadians;
+
+                if (inputState.keys.has('ArrowLeft')) {
+                    camera.rotate(-rotateSpeedRad, 0);
+                }
+                if (inputState.keys.has('ArrowRight')) {
+                    camera.rotate(rotateSpeedRad, 0);
+                }
+                if (inputState.keys.has('ArrowUp')) {
+                    camera.rotate(0, rotateSpeedRad);
+                }
+                if (inputState.keys.has('ArrowDown')) {
+                    camera.rotate(0, -rotateSpeedRad);
+                }
+
+                // Mouse look (only when pointer is locked)
+                if (
+                    inputState.mouseDelta &&
+                    (inputState.mouseDelta.x !== 0 || inputState.mouseDelta.y !== 0)
+                ) {
+                    const mouseSensitivity = 0.001; // More reasonable sensitivity
+                    const yawDelta = inputState.mouseDelta.x * mouseSensitivity;
+                    const pitchDelta = -inputState.mouseDelta.y * mouseSensitivity;
+
+                    camera.rotate(yawDelta, pitchDelta);
+                }
+
+                // Debug camera position every second
+                if (this.frameCount % 60 === 0) {
+                    const pos = camera.getPosition();
+                    console.log(
+                        'Camera position:',
+                        pos.x.toFixed(1),
+                        pos.y.toFixed(1),
+                        pos.z.toFixed(1)
+                    );
+                }
             }
         }
 
@@ -318,6 +372,14 @@ export class Engine {
             const camera = this.renderer.getCamera();
             if (camera) {
                 const position = camera.getPosition();
+                if (this.frameCount % 60 === 0) {
+                    console.log(
+                        'Engine: Updating world with camera position:',
+                        position.x.toFixed(0),
+                        position.y.toFixed(0),
+                        position.z.toFixed(0)
+                    );
+                }
                 this.world.update(position, null, deltaTime);
             }
         }
@@ -341,6 +403,9 @@ export class Engine {
         // Pass terrain tiles to renderer
         if (this.world && this.renderer) {
             const terrainTiles = this.world.getRenderableTerrain();
+            if (this.frameCount % 60 === 0) {
+                console.log('Engine: Got', terrainTiles.length, 'terrain tiles from world');
+            }
             (this.renderer as any).setTerrainTiles?.(terrainTiles);
         }
 
@@ -384,15 +449,15 @@ export class Engine {
         this.stop();
 
         if (this.renderer) {
-            await this.renderer.cleanup();
+            (this.renderer as any).destroy?.();
         }
 
         if (this.input) {
-            this.input.cleanup();
+            (this.input as any).destroy?.();
         }
 
         if (this.world) {
-            this.world.cleanup();
+            this.world.dispose();
         }
 
         this.eventBus.clear();

@@ -55,9 +55,11 @@ export class WorldManager {
         }
 
         // Initialize subsystems
-        // (Additional initialization code would go here)
+        console.log('WorldManager: Initializing terrain generator');
+        // TerrainGenerator doesn't have an initialize method but we should ensure it's ready
 
         this.isInitialized = true;
+        console.log('WorldManager: Initialization complete');
     }
 
     /**

@@ -38,9 +38,11 @@ export class TerrainRenderer {
         });
 
         // Create uniform buffer for matrices
+        // MVP (64) + Model (64) + Normal (64) + Camera pos (12) + time (4) = 208 bytes
+        // Round up to 256 for alignment
         this.uniformBuffer = device.createBuffer({
             label: 'Terrain Uniform Buffer',
-            size: 256, // Enough for MVP matrix and other uniforms
+            size: 256, // MVP + Model + Normal matrices + camera position + time
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -267,7 +269,10 @@ export class TerrainRenderer {
         camera: Camera,
         time: number
     ): void {
-        if (!this.pipeline) return;
+        if (!this.pipeline) {
+            console.error('TerrainRenderer: No pipeline available');
+            return;
+        }
 
         renderPass.setPipeline(this.pipeline);
 
@@ -282,7 +287,9 @@ export class TerrainRenderer {
                 meshData = this.createTerrainMesh(tile);
             }
 
-            if (!meshData) continue;
+            if (!meshData) {
+                continue;
+            }
 
             // Create model matrix for this tile
             const modelMatrix = new Matrix4();
@@ -297,12 +304,13 @@ export class TerrainRenderer {
             const normalMatrix = modelMatrix.clone().invert().transpose();
 
             // Update uniform buffer
-            const uniformData = new Float32Array(64 + 16 + 16 + 4); // MVP + Model + Normal + camera pos + time
-            uniformData.set(mvpMatrix.elements, 0);
-            uniformData.set(modelMatrix.elements, 16);
-            uniformData.set(normalMatrix.elements, 32);
-            uniformData.set([cameraPosition.x, cameraPosition.y, cameraPosition.z], 48);
-            uniformData[51] = time;
+            // Total: 16 + 16 + 16 + 3 + 1 = 52 floats = 208 bytes
+            const uniformData = new Float32Array(52);
+            uniformData.set(mvpMatrix.elements, 0); // 16 floats at offset 0
+            uniformData.set(modelMatrix.elements, 16); // 16 floats at offset 16
+            uniformData.set(normalMatrix.elements, 32); // 16 floats at offset 32
+            uniformData.set([cameraPosition.x, cameraPosition.y, cameraPosition.z], 48); // 3 floats at offset 48
+            uniformData[51] = time; // 1 float at offset 51
 
             this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 

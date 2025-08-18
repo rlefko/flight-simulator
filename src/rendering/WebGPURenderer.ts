@@ -452,6 +452,13 @@ export class WebGPURenderer {
 
                     // Render terrain if available
                     if (this.terrainRenderer && this.terrainTiles.length > 0) {
+                        if (this.frameCount % 60 === 0) {
+                            console.log(
+                                'WebGPURenderer: Rendering',
+                                this.terrainTiles.length,
+                                'terrain tiles'
+                            );
+                        }
                         this.terrainRenderer.render(
                             renderPass,
                             this.terrainTiles,
@@ -460,6 +467,9 @@ export class WebGPURenderer {
                         );
                     } else if (this.testPipeline && this.testTriangleBuffer) {
                         // Fallback to test triangle if no terrain
+                        if (this.frameCount % 60 === 0) {
+                            console.log('WebGPURenderer: No terrain tiles, showing test triangle');
+                        }
                         renderPass.setPipeline(this.testPipeline);
                         renderPass.setVertexBuffer(0, this.testTriangleBuffer);
                         renderPass.draw(3);
@@ -640,6 +650,11 @@ export class WebGPURenderer {
             primitive: {
                 topology: 'triangle-list',
             },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: 'less',
+                format: 'depth24plus',
+            },
         });
 
         console.log('Test triangle created successfully');
@@ -663,6 +678,9 @@ export class WebGPURenderer {
     }
 
     public setTerrainTiles(tiles: TerrainTile[]): void {
+        if (this.frameCount % 60 === 0 && tiles.length > 0) {
+            console.log('WebGPURenderer.setTerrainTiles: Received', tiles.length, 'tiles');
+        }
         this.terrainTiles = tiles;
     }
 
