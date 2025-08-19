@@ -79,8 +79,8 @@ export class PhotorealisticHeightmapGenerator {
         // Generate heightmap
         this.generateHeightmap(heightmap, worldX, worldZ, step, size);
 
-        // Apply erosion for more realistic terrain
-        this.applySimpleErosion(heightmap, size, 10);
+        // Apply hydraulic erosion for realistic terrain features
+        this.applySimpleErosion(heightmap, size, 8);
 
         // Calculate derived data
         this.calculateNormals(heightmap, normals, size, step);
@@ -100,7 +100,7 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Generate the main heightmap using layered noise with enhanced realism
+     * Generate the main heightmap using multi-octave FBM with proper erosion simulation
      */
     private generateHeightmap(
         heightmap: Float32Array,
@@ -109,75 +109,67 @@ export class PhotorealisticHeightmapGenerator {
         step: number,
         size: number
     ): void {
-        // Generate base noise layers with natural fractal properties
+        // Generate base terrain using multi-octave Fractal Brownian Motion
         for (let i = 0; i < size; i++) {
             for (let j = 0; j < size; j++) {
                 const x = worldX + j * step;
                 const z = worldZ + i * step;
                 const index = i * size + j;
 
-                // Layer 1: Large-scale landmass distribution using multi-octave FBM
-                // Create natural landmass shapes instead of geometric patterns
-                const continentalBase = this.naturalContinentalNoise(x, z);
+                // Multi-octave FBM for realistic terrain base
+                const baseElevation = this.generateRealisticTerrain(x, z);
 
-                // Layer 2: Regional elevation with natural variation - increased amplitude
-                const regionalElevation = this.fbm(x * 0.00002, z * 0.00002, 6, 2.2, 0.5) * 600;
-
-                // Layer 3: Mountain ranges with natural ridge systems - increased amplitude
-                const mountainNoise = this.createNaturalMountains(x, z);
-
-                // Layer 4: Hills and rolling terrain - increased amplitude
-                const hillsNoise = this.fbm(x * 0.0003, z * 0.0003, 4, 2.1, 0.6) * 300;
-
-                // Layer 5: Valley networks using improved drainage patterns
-                const valleyNoise = this.createNaturalValleys(x, z);
-
-                // Layer 6: Fine surface details for texture
-                const surfaceDetails = this.fbm(x * 0.002, z * 0.002, 3, 2.0, 0.4) * 50;
-
-                // Combine layers with natural weighting
-                let elevation = continentalBase;
-                elevation += regionalElevation;
-                elevation += mountainNoise;
-                elevation += hillsNoise;
-                elevation += valleyNoise;
-                elevation += surfaceDetails;
-
-                // Apply natural coastal transition zones
-                elevation = this.applyNaturalCoastalTransition(elevation, x, z);
-
-                // Clamp to realistic values
-                elevation = Math.max(-1000, Math.min(4000, elevation));
-
-                heightmap[index] = elevation;
+                // Ensure proper sea level adherence (0 meters)
+                heightmap[index] = baseElevation;
             }
         }
     }
 
     /**
-     * Generate natural continental noise to replace geometric patterns
+     * Generate realistic terrain using proper multi-octave FBM
      */
-    private naturalContinentalNoise(x: number, z: number): number {
-        // Use multiple scales of FBM to create natural landmass distribution
-        const largeScale = this.fbm(x * 0.000003, z * 0.000003, 8, 2.3, 0.5);
-        const mediumScale = this.fbm(x * 0.000012, z * 0.000012, 5, 2.1, 0.6);
-        const smallScale = this.fbm(x * 0.000035, z * 0.000035, 3, 2.0, 0.7);
+    private generateRealisticTerrain(x: number, z: number): number {
+        // Continental-scale landmass distribution
+        const continentalNoise = this.fbm(x * 0.000005, z * 0.000005, 6, 2.0, 0.6);
 
-        // Combine scales for natural continental shelf
-        const continentalShape = largeScale * 0.6 + mediumScale * 0.3 + smallScale * 0.1;
+        // Regional terrain features
+        const regionalNoise = this.fbm(x * 0.00002, z * 0.00002, 5, 2.1, 0.55);
 
-        // Apply natural elevation curve to create realistic land/sea distribution
-        // Values < 0 become ocean, values > 0 become land with varying elevation
-        const seaLevelAdjustment = -0.1; // Slightly favor ocean areas
-        const adjustedShape = continentalShape + seaLevelAdjustment;
+        // Mountain ridges using ridged noise
+        const mountainNoise = this.ridgedNoise(x * 0.00008, z * 0.00008, 4);
 
-        if (adjustedShape < 0) {
-            // Ocean depths with natural variation
-            return adjustedShape * 800; // -800m max depth
+        // Hills and valleys
+        const hillNoise = this.fbm(x * 0.0003, z * 0.0003, 4, 2.0, 0.5);
+
+        // Fine surface detail
+        const detailNoise = this.fbm(x * 0.002, z * 0.002, 3, 2.0, 0.4);
+
+        // Combine layers with realistic weighting
+        let elevation = 0;
+
+        // Continental base determines land vs water
+        const landMask = Math.max(0, continentalNoise + 0.15); // Favor slightly more land
+
+        if (landMask > 0) {
+            // Land elevation calculation
+            elevation += regionalNoise * 400; // Regional variations up to 400m
+            elevation += Math.max(0, mountainNoise) * 800; // Mountains up to 800m additional
+            elevation += hillNoise * 150; // Hills up to 150m
+            elevation += detailNoise * 20; // Surface detail up to 20m
+
+            // Apply land mask to ensure gradual transition to sea level
+            elevation *= landMask;
+
+            // Ensure minimum land elevation is slightly above sea level
+            elevation = Math.max(1, elevation);
         } else {
-            // Land elevations with natural exponential distribution
-            return Math.pow(adjustedShape, 0.7) * 1200; // Up to 1200m base elevation
+            // Ocean depth calculation (below sea level = 0)
+            const oceanDepth = Math.abs(continentalNoise + 0.15);
+            elevation = -oceanDepth * 200; // Ocean depths up to -200m
         }
+
+        // Clamp to realistic values with strict sea level adherence
+        return Math.max(-500, Math.min(3000, elevation));
     }
 
     /**
@@ -418,29 +410,29 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Advanced erosion simulation with enhanced hydraulic and thermal erosion
+     * Apply realistic hydraulic erosion simulation
      */
     private applySimpleErosion(heightmap: Float32Array, size: number, iterations: number): void {
-        const temp = new Float32Array(heightmap.length);
-        const sediment = new Float32Array(heightmap.length);
-        const velocity = new Float32Array(heightmap.length * 2); // x,y components
+        // Always apply a minimum of 5 iterations for realistic erosion
+        const erosionIterations = Math.max(5, iterations);
 
-        for (let iter = 0; iter < iterations; iter++) {
+        const temp = new Float32Array(heightmap.length);
+        const waterMap = new Float32Array(heightmap.length);
+        const sedimentMap = new Float32Array(heightmap.length);
+
+        for (let iter = 0; iter < erosionIterations; iter++) {
             temp.set(heightmap);
 
-            // Enhanced thermal erosion - smooth steep slopes more naturally
-            this.applyEnhancedThermalErosion(heightmap, temp, size);
+            // Hydraulic erosion simulation
+            this.simulateHydraulicErosion(heightmap, waterMap, sedimentMap, size);
 
-            // Enhanced hydraulic erosion - create more realistic drainage patterns
+            // Thermal erosion for natural slope stability
             if (iter % 2 === 0) {
-                // Apply hydraulic erosion every 2nd iteration for better results
-                this.applyEnhancedHydraulicErosion(heightmap, sediment, velocity, size);
+                this.applyThermalErosion(heightmap, temp, size);
             }
 
-            // Coastal smoothing to prevent artificial terracing
-            if (iter === iterations - 1) {
-                this.applyCoastalSmoothing(heightmap, size);
-            }
+            // Coastal smoothing to create natural shorelines
+            this.smoothCoastalAreas(heightmap, size);
         }
     }
 
@@ -513,133 +505,133 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Enhanced hydraulic erosion with improved sediment transport
+     * Advanced hydraulic erosion simulation with realistic water flow
      */
-    private applyEnhancedHydraulicErosion(
+    private simulateHydraulicErosion(
         heightmap: Float32Array,
-        sediment: Float32Array,
-        velocity: Float32Array,
+        waterMap: Float32Array,
+        sedimentMap: Float32Array,
         size: number
     ): void {
-        const evaporationRate = 0.008; // Reduced for longer droplet life
-        const sedimentCapacity = 5.0;
-        const depositionRate = 0.2;
-        const erosionRate = 0.2;
-        const inertia = 0.05;
+        const evaporationRate = 0.01;
+        const sedimentCapacity = 4.0;
+        const depositionRate = 0.3;
+        const erosionRate = 0.3;
+        const minSlope = 0.01;
 
-        // Simulate more water droplets for better coverage
-        for (let drop = 0; drop < size * 3; drop++) {
-            let x = Math.random() * (size - 1);
-            let z = Math.random() * (size - 1);
+        // Simulate droplet-based erosion
+        const numDroplets = size * size * 0.1; // Reduced for performance
+
+        for (let d = 0; d < numDroplets; d++) {
+            // Random starting position
+            let x = Math.random() * (size - 2) + 1;
+            let z = Math.random() * (size - 2) + 1;
             let vx = 0,
                 vz = 0;
             let water = 1.0;
-            let carriedSediment = 0;
+            let sediment = 0;
 
-            for (let step = 0; step < 40; step++) {
-                // Longer droplet lifetime
+            for (let lifetime = 0; lifetime < 30; lifetime++) {
                 const ix = Math.floor(x);
                 const iz = Math.floor(z);
 
                 if (ix < 1 || ix >= size - 1 || iz < 1 || iz >= size - 1) break;
 
-                // Calculate gradient with improved sampling
                 const index = iz * size + ix;
-                const heightHere = heightmap[index];
+                const currentHeight = heightmap[index];
 
-                // Use more accurate gradient calculation
-                const heightLeft = heightmap[index - 1];
-                const heightRight = heightmap[index + 1];
-                const heightUp = heightmap[index - size];
-                const heightDown = heightmap[index + size];
+                // Calculate height gradient
+                const heightN = heightmap[(iz - 1) * size + ix];
+                const heightS = heightmap[(iz + 1) * size + ix];
+                const heightE = heightmap[iz * size + (ix + 1)];
+                const heightW = heightmap[iz * size + (ix - 1)];
 
-                const gradX = (heightRight - heightLeft) * 0.5;
-                const gradZ = (heightDown - heightUp) * 0.5;
+                const gradX = (heightE - heightW) * 0.5;
+                const gradZ = (heightS - heightN) * 0.5;
 
-                // Update velocity with inertia and gravity
-                vx = vx * (1 - inertia) - gradX * inertia;
-                vz = vz * (1 - inertia) - gradZ * inertia;
+                // Update velocity
+                vx = vx * 0.9 - gradX;
+                vz = vz * 0.9 - gradZ;
 
-                // Normalize and limit velocity
+                // Limit speed
                 const speed = Math.sqrt(vx * vx + vz * vz);
-                if (speed > 2.0) {
-                    vx = (vx / speed) * 2.0;
-                    vz = (vz / speed) * 2.0;
+                if (speed > 1) {
+                    vx /= speed;
+                    vz /= speed;
                 }
 
                 // Update position
-                x += vx * 0.3;
-                z += vz * 0.3;
+                x += vx;
+                z += vz;
 
-                // Calculate sediment capacity based on speed and water volume
-                const normalizedSpeed = Math.min(speed, 2.0);
-                const capacity = Math.max(0, normalizedSpeed * water * sedimentCapacity);
+                // Calculate sediment capacity
+                const capacity = Math.max(minSlope, speed) * water * sedimentCapacity;
 
-                // Erosion/Deposition with enhanced realism
-                if (carriedSediment > capacity) {
-                    // Deposit sediment in wider area
-                    const deposited = (carriedSediment - capacity) * depositionRate;
-                    this.depositSedimentEnhanced(heightmap, ix, iz, deposited, size, 1.5);
-                    carriedSediment -= deposited;
-                } else if (capacity > carriedSediment) {
-                    // Erode terrain in wider area
-                    const eroded = Math.min(
-                        (capacity - carriedSediment) * erosionRate,
-                        heightHere * 0.1
-                    );
-                    this.erodeSedimentEnhanced(heightmap, ix, iz, eroded, size, 1.2);
-                    carriedSediment += eroded;
+                // Erosion/deposition
+                if (sediment > capacity) {
+                    // Deposit excess sediment
+                    const deposited = (sediment - capacity) * depositionRate;
+                    heightmap[index] += deposited;
+                    sediment -= deposited;
+                } else {
+                    // Erode terrain
+                    const maxErosion = Math.max(0, currentHeight - 0); // Don't erode below sea level
+                    const eroded = Math.min((capacity - sediment) * erosionRate, maxErosion);
+                    heightmap[index] -= eroded;
+                    sediment += eroded;
                 }
 
                 // Evaporate water
                 water *= 1 - evaporationRate;
-                if (water < 0.05) break;
+                if (water < 0.01) break;
             }
         }
     }
 
     /**
-     * Apply coastal smoothing to eliminate artificial terracing
+     * Smooth coastal areas to create natural beach transitions
      */
-    private applyCoastalSmoothing(heightmap: Float32Array, size: number): void {
-        const smoothed = new Float32Array(heightmap);
+    private smoothCoastalAreas(heightmap: Float32Array, size: number): void {
+        const smoothed = new Float32Array(heightmap.length);
+        smoothed.set(heightmap);
 
         for (let i = 1; i < size - 1; i++) {
             for (let j = 1; j < size - 1; j++) {
                 const index = i * size + j;
                 const elevation = heightmap[index];
 
-                // Apply smoothing primarily near sea level to fix terracing
-                if (elevation > -100 && elevation < 150) {
-                    let weightedSum = 0;
-                    let totalWeight = 0;
+                // Only smooth areas near sea level for natural coastlines
+                if (elevation >= -50 && elevation <= 50) {
+                    let sum = 0;
+                    let count = 0;
 
-                    // Use larger kernel for better smoothing
-                    for (let di = -2; di <= 2; di++) {
-                        for (let dj = -2; dj <= 2; dj++) {
+                    // 3x3 smoothing kernel
+                    for (let di = -1; di <= 1; di++) {
+                        for (let dj = -1; dj <= 1; dj++) {
                             const ni = i + di;
                             const nj = j + dj;
 
                             if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
-                                const distance = Math.sqrt(di * di + dj * dj);
-                                const weight = Math.max(0, 1 - distance / 3);
-
-                                weightedSum += heightmap[ni * size + nj] * weight;
-                                totalWeight += weight;
+                                sum += heightmap[ni * size + nj];
+                                count++;
                             }
                         }
                     }
 
-                    if (totalWeight > 0) {
-                        const smoothedElevation = weightedSum / totalWeight;
-                        // Blend with original to maintain detail
-                        smoothed[index] = elevation * 0.4 + smoothedElevation * 0.6;
+                    if (count > 0) {
+                        const smoothedValue = sum / count;
+                        // Gentle blending to preserve detail
+                        smoothed[index] = elevation * 0.7 + smoothedValue * 0.3;
+
+                        // Ensure sea level constraint
+                        if (smoothed[index] <= 0) {
+                            smoothed[index] = Math.min(0, smoothed[index]);
+                        }
                     }
                 }
             }
         }
 
-        // Copy smoothed values back
         heightmap.set(smoothed);
     }
 
@@ -839,24 +831,40 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Generate realistic water bodies with proper drainage patterns
+     * Generate water bodies with strict sea level adherence (0 meters)
      */
     private generateWaterBodies(
         heightmap: Float32Array,
         waterMask: Uint8Array,
         size: number
     ): void {
-        // Create drainage network
-        const drainageMap = this.createDrainageNetwork(heightmap, size);
+        // Clear water mask first
+        waterMask.fill(0);
 
-        // Generate rivers from drainage network
-        this.generateRiversFromDrainage(heightmap, waterMask, drainageMap, size);
+        // Apply strict sea level rule: water only exists where elevation <= 0
+        for (let i = 0; i < size; i++) {
+            for (let j = 0; j < size; j++) {
+                const index = i * size + j;
+                const elevation = heightmap[index];
 
-        // Generate lakes in natural depressions
-        this.generateNaturalLakes(heightmap, waterMask, size);
+                if (elevation <= 0) {
+                    waterMask[index] = 255; // Water present
+                    // Ensure water surface is exactly at sea level
+                    heightmap[index] = Math.min(0, elevation);
+                } else {
+                    waterMask[index] = 0; // No water
+                }
+            }
+        }
 
-        // Create coastal features
-        this.generateCoastalFeatures(heightmap, waterMask, size);
+        // Create realistic rivers in valleys above sea level
+        this.generateRealitiscRivers(heightmap, waterMask, size);
+
+        // Generate lakes in natural depressions above sea level
+        this.generateMountainLakes(heightmap, waterMask, size);
+
+        // Create natural coastlines
+        this.generateNaturalCoastlines(heightmap, waterMask, size);
     }
 
     /**
@@ -970,63 +978,32 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Generate rivers based on drainage network
+     * Generate realistic rivers in valleys above sea level
      */
-    private generateRiversFromDrainage(
+    private generateRealitiscRivers(
         heightmap: Float32Array,
         waterMask: Uint8Array,
-        drainageMap: Float32Array,
         size: number
     ): void {
-        const riverThreshold = size * size * 0.0008; // Minimum drainage area for rivers
-
-        for (let i = 0; i < size; i++) {
-            for (let j = 0; j < size; j++) {
+        // Find valleys for river placement
+        for (let i = 2; i < size - 2; i++) {
+            for (let j = 2; j < size - 2; j++) {
                 const index = i * size + j;
-                const drainageArea = drainageMap[index];
+                const elevation = heightmap[index];
 
-                // Only create rivers in valleys between sea level and reasonable elevation
-                if (
-                    drainageArea > riverThreshold &&
-                    heightmap[index] > 0 &&
-                    heightmap[index] < 400
-                ) {
-                    // Create river width based on drainage area
-                    const riverWidth = Math.min(
-                        3,
-                        Math.max(1, Math.sqrt(drainageArea / riverThreshold))
-                    );
+                // Only place rivers above sea level
+                if (elevation <= 0) continue;
 
-                    // Add meandering to rivers using Perlin noise
-                    const meanderScale = 0.002;
-                    const meanderStrength = 50; // meters of lateral movement
-                    const meanderX =
-                        this.perlin2D(i * meanderScale, j * meanderScale) * meanderStrength;
-                    const meanderZ =
-                        this.perlin2D((i + 1000) * meanderScale, (j + 1000) * meanderScale) *
-                        meanderStrength;
+                // Check if this is a valley (lower than surrounding area)
+                const isValley = this.isValleyPoint(heightmap, i, j, size);
 
-                    // Mark river cells with meandering
-                    for (let di = -Math.floor(riverWidth); di <= Math.floor(riverWidth); di++) {
-                        for (let dj = -Math.floor(riverWidth); dj <= Math.floor(riverWidth); dj++) {
-                            const ni = i + di + Math.round(meanderZ / 10);
-                            const nj = j + dj + Math.round(meanderX / 10);
+                if (isValley && elevation > 5 && elevation < 300) {
+                    // Probability based on elevation (more likely at lower elevations)
+                    const riverProbability = Math.max(0, (300 - elevation) / 300) * 0.003;
 
-                            if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
-                                const nIndex = ni * size + nj;
-                                const distance = Math.sqrt(di * di + dj * dj);
-
-                                if (distance <= riverWidth && heightmap[nIndex] > 0) {
-                                    waterMask[nIndex] = 255;
-                                    // Carve river channel following terrain
-                                    const channelDepth = 3 * (1 - distance / riverWidth);
-                                    heightmap[nIndex] = Math.max(
-                                        1,
-                                        heightmap[nIndex] - channelDepth
-                                    );
-                                }
-                            }
-                        }
+                    if (Math.random() < riverProbability) {
+                        // Create a small river
+                        this.createRiverSegment(heightmap, waterMask, i, j, size, 1);
                     }
                 }
             }
@@ -1034,41 +1011,35 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Generate natural lakes in terrain depressions
+     * Generate mountain lakes in natural depressions above sea level
      */
-    private generateNaturalLakes(
+    private generateMountainLakes(
         heightmap: Float32Array,
         waterMask: Uint8Array,
         size: number
     ): void {
-        // Find natural depressions for lakes
-        const depressions: Array<{ x: number; z: number; elevation: number; area: number }> = [];
-
-        for (let i = 5; i < size - 5; i++) {
-            for (let j = 5; j < size - 5; j++) {
+        // Find suitable lake locations in mountainous areas
+        for (let i = 3; i < size - 3; i++) {
+            for (let j = 3; j < size - 3; j++) {
                 const index = i * size + j;
                 const elevation = heightmap[index];
 
-                // Only create lakes in depressions above sea level, not on high terrain
-                if (elevation < 5 || elevation > 400 || waterMask[index] > 0) continue;
+                // Only consider areas above sea level and not too high
+                if (elevation <= 10 || elevation > 800 || waterMask[index] > 0) continue;
 
-                // Check if this could be a lake center
-                const depression = this.analyzeDepression(i, j, heightmap, size);
+                // Check if this is a natural depression
+                const isDepression = this.isNaturalDepression(heightmap, i, j, size);
 
-                if (depression.isValid && depression.depth > 5 && depression.area > 20) {
-                    depressions.push({
-                        x: j,
-                        z: i,
-                        elevation: elevation,
-                        area: depression.area,
-                    });
+                if (isDepression) {
+                    const lakeProbability = Math.max(0, (elevation - 50) / 500) * 0.002;
+
+                    if (Math.random() < lakeProbability) {
+                        // Create a small mountain lake
+                        const lakeSize = Math.random() * 3 + 1;
+                        this.createSmallLake(heightmap, waterMask, i, j, size, lakeSize);
+                    }
                 }
             }
-        }
-
-        // Create lakes at valid depressions
-        for (const dep of depressions) {
-            this.createLake(dep.x, dep.z, dep.elevation, dep.area, heightmap, waterMask, size);
         }
     }
 
@@ -1155,9 +1126,9 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Generate coastal features like bays and peninsulas
+     * Generate natural coastlines with proper beach transitions
      */
-    private generateCoastalFeatures(
+    private generateNaturalCoastlines(
         heightmap: Float32Array,
         waterMask: Uint8Array,
         size: number
@@ -1167,23 +1138,26 @@ export class PhotorealisticHeightmapGenerator {
                 const index = i * size + j;
                 const elevation = heightmap[index];
 
-                // Create coastal features only near actual sea level
-                if (elevation > -10 && elevation < 10) {
-                    const coastalNoise = this.fbm(j * 0.02, i * 0.02, 3, 2.5, 0.6);
+                // Process coastline areas (transition between land and sea)
+                if (elevation >= -5 && elevation <= 20) {
+                    // Check if this point is near the coastline
+                    const nearCoast = this.isNearCoastline(heightmap, i, j, size);
 
-                    // Create bays and inlets
-                    if (coastalNoise < -0.3 && elevation > 0) {
-                        const bayDepth = Math.abs(coastalNoise) * 15;
-                        heightmap[index] = Math.max(-10, elevation - bayDepth);
+                    if (nearCoast) {
+                        // Create natural beach slope
+                        const distanceToSea = this.getDistanceToSeaLevel(heightmap, i, j, size);
 
-                        if (heightmap[index] < 2) {
-                            waterMask[index] = 255;
+                        if (distanceToSea < 10 && elevation > 0) {
+                            // Create gentle beach slope
+                            const beachSlope = Math.max(0, elevation * (1 - distanceToSea / 10));
+                            heightmap[index] = Math.max(0.5, beachSlope);
                         }
-                    }
 
-                    // Create small peninsulas and headlands
-                    else if (coastalNoise > 0.4 && elevation < 15) {
-                        heightmap[index] += coastalNoise * 12;
+                        // Add some coastal variation with noise
+                        const coastalNoise = this.perlin2D(i * 0.05, j * 0.05) * 3;
+                        if (elevation > 2) {
+                            heightmap[index] = Math.max(1, heightmap[index] + coastalNoise);
+                        }
                     }
                 }
             }
@@ -1331,7 +1305,7 @@ export class PhotorealisticHeightmapGenerator {
     }
 
     /**
-     * Calculate suitability scores for each biome type
+     * Calculate suitability scores for each biome type with smooth transitions
      */
     private calculateBiomeSuitability(
         elevation: number,
@@ -1341,67 +1315,81 @@ export class PhotorealisticHeightmapGenerator {
     ): { [biomeId: number]: number } {
         const scores: { [biomeId: number]: number } = {};
 
-        // Ocean (0) - only below sea level (0m)
-        scores[0] = elevation < 0 ? Math.max(0, -elevation) / 100 : 0;
+        // Smooth transition functions for better blending
+        const smoothStep = (edge0: number, edge1: number, x: number): number => {
+            const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+            return t * t * (3 - 2 * t);
+        };
 
-        // Beach (1) - low elevation, near water, low slope
-        scores[1] =
-            elevation < 50 && elevation > 5 ? (((1 - slope) * (50 - elevation)) / 45) * 0.8 : 0;
+        const gaussianCurve = (x: number, center: number, width: number): number => {
+            const d = (x - center) / width;
+            return Math.exp(-0.5 * d * d);
+        };
 
-        // Grassland (2) - moderate elevation, temperature, moisture
-        const grasslandTemp = Math.max(0, 1 - Math.abs(temperature - 15) / 20);
-        const grasslandMoisture = Math.max(0, 1 - Math.abs(moisture - 0.6) / 0.6);
-        const grasslandElevation =
-            elevation > 20 && elevation < 800
-                ? Math.max(0, 1 - Math.abs(elevation - 200) / 600)
-                : 0;
-        scores[2] = grasslandTemp * grasslandMoisture * grasslandElevation * (1 - slope * 0.8);
+        // Ocean (0) - strictly below sea level with smooth depth falloff
+        scores[0] = elevation <= 0 ? smoothStep(-200, 0, elevation) : 0;
 
-        // Forest (3) - moderate elevation, high moisture, mild temperature
-        const forestTemp =
-            temperature > 5 && temperature < 25
-                ? Math.max(0, 1 - Math.abs(temperature - 15) / 15)
-                : 0;
-        const forestMoisture = moisture > 0.4 ? (moisture - 0.4) / 0.6 : 0;
-        const forestElevation =
-            elevation > 50 && elevation < 1200
-                ? Math.max(0, 1 - Math.abs(elevation - 400) / 800)
-                : 0;
-        scores[3] = forestTemp * forestMoisture * forestElevation * (1 - slope * 0.6);
+        // Beach (1) - coastal areas with smooth elevation transition
+        const beachElevationScore = smoothStep(0, 30, elevation) * smoothStep(30, 0, elevation);
+        const beachSlopeScore = smoothStep(0.8, 0, slope);
+        scores[1] = beachElevationScore * beachSlopeScore;
 
-        // Desert (4) - low moisture, high temperature
-        const desertTemp = temperature > 20 ? Math.min(1, (temperature - 20) / 20) : 0;
-        const desertMoisture = moisture < 0.3 ? (0.3 - moisture) / 0.3 : 0;
-        const desertElevation =
-            elevation > 0 && elevation < 1000 ? Math.max(0, 1 - elevation / 1000) : 0;
-        scores[4] = desertTemp * desertMoisture * desertElevation;
+        // Grassland (2) - temperate lowlands with smooth parameter curves
+        const grasslandTempScore = gaussianCurve(temperature, 15, 12);
+        const grasslandMoistureScore = gaussianCurve(moisture, 0.6, 0.4);
+        const grasslandElevationScore =
+            smoothStep(10, 100, elevation) * smoothStep(600, 200, elevation);
+        const grasslandSlopeScore = smoothStep(0.6, 0, slope);
+        scores[2] =
+            grasslandTempScore *
+            grasslandMoistureScore *
+            grasslandElevationScore *
+            grasslandSlopeScore;
 
-        // Mountain/Rock (5) - high elevation or steep slope
-        const mountainElevation = elevation > 600 ? Math.min(1, (elevation - 600) / 1000) : 0;
-        const mountainSlope = slope > 0.5 ? Math.min(1, (slope - 0.5) / 0.5) : 0;
-        scores[5] = Math.max(mountainElevation, mountainSlope * 0.8);
+        // Forest (3) - higher moisture areas with smooth transitions
+        const forestTempScore = gaussianCurve(temperature, 12, 15);
+        const forestMoistureScore = smoothStep(0.4, 0.8, moisture);
+        const forestElevationScore =
+            smoothStep(20, 150, elevation) * smoothStep(1000, 400, elevation);
+        const forestSlopeScore = smoothStep(0.7, 0, slope);
+        scores[3] = forestTempScore * forestMoistureScore * forestElevationScore * forestSlopeScore;
 
-        // Snow (6) - very high elevation or very cold
-        const snowElevation = elevation > 1500 ? Math.min(1, (elevation - 1500) / 1000) : 0;
-        const snowTemp = temperature < -5 ? Math.min(1, (-5 - temperature) / 20) : 0;
-        scores[6] = Math.max(snowElevation, snowTemp);
+        // Desert (4) - hot, dry areas with smooth boundaries
+        const desertTempScore = smoothStep(18, 35, temperature);
+        const desertMoistureScore = smoothStep(0.4, 0, moisture);
+        const desertElevationScore = smoothStep(0, 50, elevation) * smoothStep(800, 200, elevation);
+        scores[4] = desertTempScore * desertMoistureScore * desertElevationScore;
 
-        // Tundra (7) - cold temperature, low moisture
-        const tundraTemp =
-            temperature < 5 && temperature > -15
-                ? Math.max(0, 1 - Math.abs(temperature + 5) / 15)
-                : 0;
-        const tundraMoisture = moisture < 0.4 ? (0.4 - moisture) / 0.4 : 0;
-        const tundraElevation =
-            elevation > 100 && elevation < 800
-                ? Math.max(0, 1 - Math.abs(elevation - 300) / 500)
-                : 0;
-        scores[7] = tundraTemp * tundraMoisture * tundraElevation;
+        // Mountain/Rock (5) - high elevation or steep slopes with smooth transitions
+        const mountainElevationScore = smoothStep(400, 800, elevation);
+        const mountainSlopeScore = smoothStep(0.3, 0.8, slope);
+        scores[5] = Math.max(mountainElevationScore * 0.8, mountainSlopeScore);
 
-        // Wetland (8) - high moisture, low elevation, low slope
-        const wetlandMoisture = moisture > 0.7 ? (moisture - 0.7) / 0.3 : 0;
-        const wetlandElevation = elevation < 100 ? (100 - elevation) / 100 : 0;
-        scores[8] = wetlandMoisture * wetlandElevation * (1 - slope);
+        // Snow (6) - high elevation or very cold with smooth boundaries
+        const snowElevationScore = smoothStep(1200, 2000, elevation);
+        const snowTempScore = smoothStep(0, -10, temperature);
+        scores[6] = Math.max(snowElevationScore, snowTempScore);
+
+        // Tundra (7) - cold, dry areas with smooth parameter curves
+        const tundraTempScore = gaussianCurve(temperature, -2, 8);
+        const tundraMoistureScore = smoothStep(0.5, 0.1, moisture);
+        const tundraElevationScore =
+            smoothStep(50, 200, elevation) * smoothStep(600, 400, elevation);
+        scores[7] = tundraTempScore * tundraMoistureScore * tundraElevationScore;
+
+        // Wetland (8) - high moisture, low elevation with smooth curves
+        const wetlandMoistureScore = smoothStep(0.7, 1.0, moisture);
+        const wetlandElevationScore = smoothStep(150, 20, elevation);
+        const wetlandSlopeScore = smoothStep(0.3, 0, slope);
+        scores[8] = wetlandMoistureScore * wetlandElevationScore * wetlandSlopeScore;
+
+        // Normalize scores to prevent over-saturation
+        const maxScore = Math.max(...Object.values(scores));
+        if (maxScore > 0) {
+            for (const biomeId in scores) {
+                scores[biomeId] /= maxScore;
+            }
+        }
 
         return scores;
     }
@@ -1531,5 +1519,201 @@ export class PhotorealisticHeightmapGenerator {
         const u = h < 2 ? x : y;
         const v = h < 2 ? y : x;
         return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+    }
+
+    /**
+     * Helper methods for improved terrain generation
+     */
+
+    /**
+     * Check if a point is in a valley (lower than surrounding terrain)
+     */
+    private isValleyPoint(heightmap: Float32Array, i: number, j: number, size: number): boolean {
+        const centerHeight = heightmap[i * size + j];
+        let lowerCount = 0;
+        let totalCount = 0;
+
+        for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+                if (di === 0 && dj === 0) continue;
+
+                const ni = i + di;
+                const nj = j + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const neighborHeight = heightmap[ni * size + nj];
+                    if (neighborHeight > centerHeight) {
+                        lowerCount++;
+                    }
+                    totalCount++;
+                }
+            }
+        }
+
+        return lowerCount >= totalCount * 0.6;
+    }
+
+    /**
+     * Check if a point is in a natural depression
+     */
+    private isNaturalDepression(
+        heightmap: Float32Array,
+        i: number,
+        j: number,
+        size: number
+    ): boolean {
+        const centerHeight = heightmap[i * size + j];
+        const radius = 2;
+        let higherCount = 0;
+        let totalCount = 0;
+
+        for (let di = -radius; di <= radius; di++) {
+            for (let dj = -radius; dj <= radius; dj++) {
+                if (di === 0 && dj === 0) continue;
+
+                const ni = i + di;
+                const nj = j + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const neighborHeight = heightmap[ni * size + nj];
+                    if (neighborHeight > centerHeight + 5) {
+                        // At least 5m higher
+                        higherCount++;
+                    }
+                    totalCount++;
+                }
+            }
+        }
+
+        return higherCount >= totalCount * 0.4;
+    }
+
+    /**
+     * Check if a point is near the coastline
+     */
+    private isNearCoastline(heightmap: Float32Array, i: number, j: number, size: number): boolean {
+        const radius = 3;
+        let hasWater = false;
+        let hasLand = false;
+
+        for (let di = -radius; di <= radius; di++) {
+            for (let dj = -radius; dj <= radius; dj++) {
+                const ni = i + di;
+                const nj = j + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const height = heightmap[ni * size + nj];
+                    if (height <= 0) {
+                        hasWater = true;
+                    } else {
+                        hasLand = true;
+                    }
+                }
+            }
+        }
+
+        return hasWater && hasLand;
+    }
+
+    /**
+     * Get distance to sea level (0 meters)
+     */
+    private getDistanceToSeaLevel(
+        heightmap: Float32Array,
+        i: number,
+        j: number,
+        size: number
+    ): number {
+        const radius = 10;
+        let minDistance = radius;
+
+        for (let di = -radius; di <= radius; di++) {
+            for (let dj = -radius; dj <= radius; dj++) {
+                const ni = i + di;
+                const nj = j + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const height = heightmap[ni * size + nj];
+                    if (height <= 0) {
+                        const distance = Math.sqrt(di * di + dj * dj);
+                        minDistance = Math.min(minDistance, distance);
+                    }
+                }
+            }
+        }
+
+        return minDistance;
+    }
+
+    /**
+     * Create a river segment
+     */
+    private createRiverSegment(
+        heightmap: Float32Array,
+        waterMask: Uint8Array,
+        centerI: number,
+        centerJ: number,
+        size: number,
+        width: number
+    ): void {
+        for (let di = -width; di <= width; di++) {
+            for (let dj = -width; dj <= width; dj++) {
+                const ni = centerI + di;
+                const nj = centerJ + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const distance = Math.sqrt(di * di + dj * dj);
+                    if (distance <= width) {
+                        const index = ni * size + nj;
+                        const currentHeight = heightmap[index];
+
+                        if (currentHeight > 1) {
+                            // Only above sea level
+                            waterMask[index] = 255;
+                            // Carve shallow river channel
+                            const depth = (1 - distance / width) * 2;
+                            heightmap[index] = Math.max(1, currentHeight - depth);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Create a small lake
+     */
+    private createSmallLake(
+        heightmap: Float32Array,
+        waterMask: Uint8Array,
+        centerI: number,
+        centerJ: number,
+        size: number,
+        radius: number
+    ): void {
+        const centerHeight = heightmap[centerI * size + centerJ];
+
+        for (let di = -Math.ceil(radius); di <= Math.ceil(radius); di++) {
+            for (let dj = -Math.ceil(radius); dj <= Math.ceil(radius); dj++) {
+                const ni = centerI + di;
+                const nj = centerJ + dj;
+
+                if (ni >= 0 && ni < size && nj >= 0 && nj < size) {
+                    const distance = Math.sqrt(di * di + dj * dj);
+                    if (distance <= radius) {
+                        const index = ni * size + nj;
+                        const currentHeight = heightmap[index];
+
+                        if (currentHeight > 10) {
+                            // Only in elevated areas
+                            waterMask[index] = 255;
+                            // Create lake depression
+                            const depth = (1 - distance / radius) * 3;
+                            heightmap[index] = Math.max(centerHeight - 2, currentHeight - depth);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

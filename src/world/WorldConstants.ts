@@ -125,19 +125,19 @@ export const NOISE_CONFIG = {
         { frequency: 0.064, amplitude: 1, type: 'fbm' }, // Surface roughness (reduced from 2)
     ],
 
-    /** Erosion simulation parameters - tuned for safety and realism */
+    /** Erosion simulation parameters - enabled for realistic terrain */
     EROSION: {
-        iterations: 0, // Temporarily disabled for debugging
-        dropletLifetime: 20, // Reduced for performance
-        inertia: 0.1, // Increased for more stable flow
-        sedimentCapacityFactor: 2, // Reduced to prevent over-erosion
-        minSedimentCapacity: 0.02, // Slightly higher minimum
-        erodeSpeed: 0.15, // Reduced erosion rate for stability
-        depositSpeed: 0.25, // Slightly reduced deposition
-        evaporateSpeed: 0.02, // Increased evaporation rate
-        gravity: 3, // Reduced gravity for gentler erosion
-        maxDropletSpeed: 8, // Reduced max speed
-        brushRadius: 2, // Smaller brush for more precise erosion
+        iterations: 8, // Enabled with optimal iteration count
+        dropletLifetime: 25, // Moderate lifetime for natural flow
+        inertia: 0.05, // Lower inertia for more responsive flow
+        sedimentCapacityFactor: 3, // Balanced sediment capacity
+        minSedimentCapacity: 0.01, // Lower minimum for better erosion
+        erodeSpeed: 0.2, // Moderate erosion rate
+        depositSpeed: 0.3, // Balanced deposition
+        evaporateSpeed: 0.015, // Moderate evaporation rate
+        gravity: 4, // Natural gravity effect
+        maxDropletSpeed: 6, // Controlled max speed
+        brushRadius: 1.5, // Smaller brush for precise erosion
     },
 
     /** Temperature and precipitation noise */
