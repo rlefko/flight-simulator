@@ -172,20 +172,20 @@ export class HeightmapGenerator {
                 const continentalFactor = this.getEnhancedContinentalFactor(wx, wz);
                 elevation *= continentalFactor;
 
-                // Add mountain ridge generation (scale down the contribution)
-                const ridgeContribution = this.generateMountainRidges(wx, wz) * 0.001;
+                // Add mountain ridge generation (scale down the contribution further)
+                const ridgeContribution = this.generateMountainRidges(wx, wz) * 0.0002;
                 elevation += ridgeContribution;
 
-                // Create valley carving (scale down the contribution)
-                const valleyCarving = this.generateValleys(wx, wz) * 0.001;
+                // Create valley carving (scale down the contribution further)
+                const valleyCarving = this.generateValleys(wx, wz) * 0.0002;
                 elevation += valleyCarving;
 
                 // Add plains with subtle variations (scale down the contribution)
-                const plainsContribution = this.generatePlains(wx, wz) * 0.01;
+                const plainsContribution = this.generatePlains(wx, wz) * 0.002;
                 elevation += plainsContribution;
 
-                // Generate volcanic peaks (scale down the contribution)
-                const volcanicContribution = this.generateVolcanicPeaks(wx, wz) * 0.001;
+                // Generate volcanic peaks (scale down the contribution further)
+                const volcanicContribution = this.generateVolcanicPeaks(wx, wz) * 0.0001;
                 elevation += volcanicContribution;
 
                 // Apply latitude-based elevation scaling
@@ -195,13 +195,17 @@ export class HeightmapGenerator {
                 // Clamp before scaling to prevent extreme values (must be in [-1, 1] range)
                 elevation = Math.max(-1, Math.min(1, elevation));
 
-                // Scale to realistic elevation ranges (-500m to 8000m)
+                // Scale to realistic elevation ranges (-200m to 2000m for more gentle terrain)
                 elevation = this.scaleElevationToRealistic(elevation);
 
-                // Validate elevation to prevent NaN propagation
+                // Validate elevation to prevent NaN propagation and clamp extreme values
                 if (!isFinite(elevation)) {
+                    console.warn(`Invalid elevation detected at (${wx}, ${wz}): ${elevation}`);
                     elevation = 0; // Default to sea level
                 }
+
+                // Additional safety clamp to prevent extreme visual artifacts
+                elevation = Math.max(-500, Math.min(3000, elevation));
 
                 heightmap[index] = elevation;
             }
@@ -584,7 +588,7 @@ export class HeightmapGenerator {
         step: number,
         size: number
     ): void {
-        // First pass: detect water bodies
+        // First pass: detect water bodies - ensure water detection is enabled
         const waterBodies = this.detectWaterBodies(heightmap, worldX, worldZ, step, size);
 
         // Calculate slopes for biome classification
@@ -1005,7 +1009,7 @@ export class HeightmapGenerator {
             maxFactor = Math.max(maxFactor, factor);
         }
 
-        const result = Math.max(-0.5, Math.min(1.0, maxFactor));
+        const result = Math.max(-0.3, Math.min(0.8, maxFactor)); // Reduce extreme values
         return isFinite(result) ? result : 0;
     }
 
@@ -1148,21 +1152,21 @@ export class HeightmapGenerator {
     }
 
     /**
-     * Scale elevation to realistic ranges (-500m to 8000m)
+     * Scale elevation to realistic ranges (-200m to 2000m for gentler terrain)
      */
     private scaleElevationToRealistic(normalizedElevation: number): number {
-        // Map [-1, 1] to [-500, 8000] with emphasis on land elevations
+        // Map [-1, 1] to [-200, 2000] with emphasis on land elevations
         const seaLevel = 0;
-        const oceanDepth = -500;
-        const maxElevation = 8000;
+        const oceanDepth = -200; // Reduced ocean depth
+        const maxElevation = 2000; // Reduced max elevation for gentler terrain
 
         if (normalizedElevation < 0) {
-            // Ocean depths: [-1, 0] -> [-500, 0]
+            // Ocean depths: [-1, 0] -> [-200, 0]
             return normalizedElevation * Math.abs(oceanDepth);
         } else {
-            // Land elevations: [0, 1] -> [0, 8000]
+            // Land elevations: [0, 1] -> [0, 2000]
             // Use power function to create more low elevations
-            const scaledElevation = Math.pow(normalizedElevation, 0.7);
+            const scaledElevation = Math.pow(normalizedElevation, 0.8); // Slightly more aggressive curve for gentler terrain
             return scaledElevation * maxElevation;
         }
     }

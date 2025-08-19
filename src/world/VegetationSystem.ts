@@ -430,7 +430,7 @@ export class VegetationSystem {
                         speciesId,
                         species,
                         worldX,
-                        terrainData.elevation,
+                        terrainData.elevation, // Use the actual terrain elevation
                         worldZ
                     );
                     placement.instances.push(instance);
@@ -507,7 +507,7 @@ export class VegetationSystem {
                         grassId,
                         grassType,
                         worldX,
-                        terrainData.elevation,
+                        terrainData.elevation, // Use the actual terrain elevation
                         worldZ
                     );
                     placement.instances.push(instance);
@@ -518,7 +518,7 @@ export class VegetationSystem {
     }
 
     /**
-     * Sample terrain data at a specific position within the tile
+     * Sample terrain data at a specific position within the tile using bilinear interpolation
      */
     private sampleTerrainData(
         x: number,
@@ -530,19 +530,46 @@ export class VegetationSystem {
         step: number,
         resolution: number
     ) {
-        const i = Math.floor(z / step);
-        const j = Math.floor(x / step);
+        // Convert to grid coordinates
+        const fx = x / step;
+        const fz = z / step;
 
-        if (i < 0 || i >= resolution || j < 0 || j >= resolution) {
-            return null;
-        }
+        // Clamp to valid range
+        const clampedFx = Math.max(0, Math.min(resolution - 1.001, fx));
+        const clampedFz = Math.max(0, Math.min(resolution - 1.001, fz));
 
-        const index = i * resolution + j;
+        const ix = Math.floor(clampedFx);
+        const iz = Math.floor(clampedFz);
+
+        // Get fractional parts for interpolation
+        const tx = clampedFx - ix;
+        const tz = clampedFz - iz;
+
+        // Sample the four corner points
+        const i00 = iz * resolution + ix;
+        const i10 = iz * resolution + Math.min(ix + 1, resolution - 1);
+        const i01 = Math.min(iz + 1, resolution - 1) * resolution + ix;
+        const i11 =
+            Math.min(iz + 1, resolution - 1) * resolution + Math.min(ix + 1, resolution - 1);
+
+        // Bilinear interpolation for height
+        const h00 = heightmap[i00];
+        const h10 = heightmap[i10];
+        const h01 = heightmap[i01];
+        const h11 = heightmap[i11];
+
+        const h0 = h00 * (1 - tx) + h10 * tx;
+        const h1 = h01 * (1 - tx) + h11 * tx;
+        const elevation = h0 * (1 - tz) + h1 * tz;
+
+        // Use nearest neighbor for discrete data (materials, water mask)
+        const nearestIndex = Math.round(clampedFz) * resolution + Math.round(clampedFx);
+
         return {
-            elevation: heightmap[index],
-            biome: materials[index],
-            slope: slopes[index],
-            isWater: waterMask[index] > 0,
+            elevation: elevation,
+            biome: materials[nearestIndex],
+            slope: slopes[nearestIndex],
+            isWater: waterMask[nearestIndex] > 0,
         };
     }
 

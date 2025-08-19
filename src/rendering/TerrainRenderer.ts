@@ -122,7 +122,7 @@ export class TerrainRenderer {
                 entryPoint: 'vs_shadow',
                 buffers: [
                     {
-                        arrayStride: 32, // 3 floats position + 3 floats normal + 2 floats uv
+                        arrayStride: 36, // 3 floats position + 3 floats normal + 2 floats uv + 1 float material
                         attributes: [
                             {
                                 format: 'float32x3',
@@ -138,6 +138,11 @@ export class TerrainRenderer {
                                 format: 'float32x2',
                                 offset: 24,
                                 shaderLocation: 2, // uv
+                            },
+                            {
+                                format: 'float32',
+                                offset: 32,
+                                shaderLocation: 3, // materialId
                             },
                         ],
                     },
@@ -171,7 +176,7 @@ export class TerrainRenderer {
                 entryPoint: 'vs_terrain',
                 buffers: [
                     {
-                        arrayStride: 32, // 3 floats position + 3 floats normal + 2 floats uv
+                        arrayStride: 36, // 3 floats position + 3 floats normal + 2 floats uv + 1 float material
                         attributes: [
                             {
                                 format: 'float32x3',
@@ -187,6 +192,11 @@ export class TerrainRenderer {
                                 format: 'float32x2',
                                 offset: 24,
                                 shaderLocation: 2, // uv
+                            },
+                            {
+                                format: 'float32',
+                                offset: 32,
+                                shaderLocation: 3, // materialId
                             },
                         ],
                     },
@@ -251,6 +261,7 @@ export class TerrainRenderer {
                 @location(0) position: vec3<f32>,
                 @location(1) normal: vec3<f32>,
                 @location(2) uv: vec2<f32>,
+                @location(3) materialId: f32,
             };
             
             struct VertexOutput {
@@ -260,6 +271,7 @@ export class TerrainRenderer {
                 @location(2) uv: vec2<f32>,
                 @location(3) height: f32,
                 @location(4) viewDepth: f32,
+                @location(5) materialId: f32,
             };
             
             @vertex
@@ -275,6 +287,7 @@ export class TerrainRenderer {
                 output.uv = input.uv;
                 output.height = input.position.y;
                 output.viewDepth = clipPos.z / clipPos.w;
+                output.materialId = input.materialId;
                 
                 return output;
             }
@@ -339,6 +352,27 @@ export class TerrainRenderer {
                 return shadowSum / sampleCount;
             }
             
+            fn getBiomeColor(materialId: f32, elevation: f32) -> vec3<f32> {
+                let id = i32(materialId);
+                
+                // Biome colors based on BIOME_CONFIG in WorldConstants.ts
+                switch (id) {
+                    case 0: { return vec3<f32>(0.0, 0.4, 0.8); }      // Ocean
+                    case 1: { return vec3<f32>(0.9, 0.8, 0.6); }      // Beach
+                    case 2: { return vec3<f32>(0.4, 0.7, 0.2); }      // Grassland
+                    case 3: { return vec3<f32>(0.2, 0.5, 0.1); }      // Forest
+                    case 4: { return vec3<f32>(0.9, 0.7, 0.4); }      // Desert
+                    case 5: { return vec3<f32>(0.6, 0.6, 0.6); }      // Mountain
+                    case 6: { return vec3<f32>(0.95, 0.95, 0.95); }   // Snow
+                    case 7: { return vec3<f32>(0.5, 0.6, 0.5); }      // Tundra
+                    case 8: { return vec3<f32>(0.3, 0.5, 0.3); }      // Wetland
+                    case 9: { return vec3<f32>(0.7, 0.7, 0.7); }      // Urban
+                    case 10: { return vec3<f32>(0.1, 0.5, 0.9); }     // Lake
+                    case 11: { return vec3<f32>(0.2, 0.6, 1.0); }     // River
+                    default: { return vec3<f32>(0.4, 0.7, 0.2); }     // Default to grassland
+                }
+            }
+            
             fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
                 let cascadeIndex = getShadowCascadeIndex(viewDepth);
                 
@@ -372,21 +406,12 @@ export class TerrainRenderer {
             
             @fragment
             fn fs_terrain(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Base terrain color based on height
-                var baseColor = vec3<f32>(0.2, 0.6, 0.2); // Green
+                // Base terrain color based on material ID (biome)
+                var baseColor = getBiomeColor(input.materialId, input.worldPos.y);
                 
-                let heightFactor = clamp(input.worldPos.y / 500.0, 0.0, 1.0);
-                baseColor = mix(
-                    vec3<f32>(0.1, 0.4, 0.1), // Dark green (low)
-                    vec3<f32>(0.4, 0.8, 0.4), // Bright green (high)
-                    heightFactor
-                );
-                
-                // Add some rock color at higher elevations
-                if (input.worldPos.y > 300.0) {
-                    let rockFactor = smoothstep(300.0, 800.0, input.worldPos.y);
-                    baseColor = mix(baseColor, vec3<f32>(0.5, 0.4, 0.3), rockFactor);
-                }
+                // Add height-based variation for more realism
+                let heightFactor = clamp(input.worldPos.y / 1000.0, 0.0, 1.0);
+                baseColor = mix(baseColor, baseColor * 1.2, heightFactor * 0.3);
                 
                 // Calculate lighting
                 let lightDir = -shadowUniforms.lightDirection;
@@ -443,11 +468,14 @@ export class TerrainRenderer {
 
         // Create vertex buffer
         const vertexData = new Float32Array(
-            meshData.vertices.length + meshData.normals.length + meshData.uvs.length
+            meshData.vertices.length +
+                meshData.normals.length +
+                meshData.uvs.length +
+                meshData.vertices.length / 3
         );
         let offset = 0;
 
-        // Interleave vertex data: position, normal, uv
+        // Interleave vertex data: position, normal, uv, materialId
         const vertexCount = meshData.vertices.length / 3;
         for (let i = 0; i < vertexCount; i++) {
             // Position
@@ -463,6 +491,10 @@ export class TerrainRenderer {
             // UV
             vertexData[offset++] = meshData.uvs[i * 2];
             vertexData[offset++] = meshData.uvs[i * 2 + 1];
+
+            // Material ID (from terrain data if available)
+            const materialId = tile.terrainData?.materials ? tile.terrainData.materials[i] || 2 : 2; // Default to grassland
+            vertexData[offset++] = materialId;
         }
 
         const vertexBuffer = this.device.createBuffer({

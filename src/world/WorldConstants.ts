@@ -116,13 +116,13 @@ export const PERFORMANCE_CONFIG = {
 export const NOISE_CONFIG = {
     /** Enhanced terrain noise octaves for realistic diverse terrain */
     TERRAIN_OCTAVES: [
-        { frequency: 0.000015, amplitude: 1000, type: 'fbm' }, // Continental scale features
-        { frequency: 0.00006, amplitude: 500, type: 'fbm' }, // Large landforms
-        { frequency: 0.00025, amplitude: 200, type: 'ridge' }, // Mountain ridges
-        { frequency: 0.001, amplitude: 80, type: 'fbm' }, // Hills and valleys
-        { frequency: 0.004, amplitude: 25, type: 'turbulence' }, // Local terrain variation
-        { frequency: 0.016, amplitude: 8, type: 'fbm' }, // Fine detail
-        { frequency: 0.064, amplitude: 2, type: 'fbm' }, // Surface roughness
+        { frequency: 0.000015, amplitude: 300, type: 'fbm' }, // Continental scale features (reduced from 1000)
+        { frequency: 0.00006, amplitude: 150, type: 'fbm' }, // Large landforms (reduced from 500)
+        { frequency: 0.00025, amplitude: 60, type: 'ridge' }, // Mountain ridges (reduced from 200)
+        { frequency: 0.001, amplitude: 25, type: 'fbm' }, // Hills and valleys (reduced from 80)
+        { frequency: 0.004, amplitude: 8, type: 'turbulence' }, // Local terrain variation (reduced from 25)
+        { frequency: 0.016, amplitude: 3, type: 'fbm' }, // Fine detail (reduced from 8)
+        { frequency: 0.064, amplitude: 1, type: 'fbm' }, // Surface roughness (reduced from 2)
     ],
 
     /** Erosion simulation parameters - tuned for safety and realism */
