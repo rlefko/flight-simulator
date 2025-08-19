@@ -418,7 +418,7 @@ export class VegetationSystem {
             const treeCount = Math.max(1, Math.round(baseTreeCount * (0.5 + this.random() * 0.5)));
 
             // Use Poisson disk sampling for natural distribution
-            const minDistance = Math.sqrt(1000000 / species.density); // Approximate spacing
+            const minDistance = Math.sqrt(1000000 / species.density) * 0.5; // Approximate spacing
             const sampler = new PoissonDiskSampler(tile.size, tile.size, minDistance);
             const samples = sampler.generateSamples(treeCount * 2); // Generate extra samples to filter
 
@@ -429,7 +429,7 @@ export class VegetationSystem {
                 const worldX = tileWorldX + sample.x;
                 const worldZ = tileWorldZ + sample.z;
 
-                // Get terrain data at this position
+                // Get precise terrain data at this exact position using bilinear interpolation
                 const terrainData = this.sampleTerrainData(
                     sample.x,
                     sample.z,
@@ -445,11 +445,17 @@ export class VegetationSystem {
 
                 // Check if this location is suitable for this tree species
                 if (this.isValidTreeLocation(species, terrainData)) {
+                    // Use forest density for natural clustering
+                    const forestDensity = this.getForestDensity(worldX, worldZ, terrainData.biome);
+                    const placementRandom = this.seededRandom(worldX, worldZ, this.seed + 1000);
+
+                    if (placementRandom > forestDensity) continue;
+
                     const instance = this.createTreeInstance(
                         speciesId,
                         species,
                         worldX,
-                        terrainData.elevation, // Use the actual terrain elevation
+                        terrainData.elevation, // Use the precise interpolated terrain elevation
                         worldZ
                     );
                     placement.instances.push(instance);
@@ -571,7 +577,7 @@ export class VegetationSystem {
         const i11 =
             Math.min(iz + 1, resolution - 1) * resolution + Math.min(ix + 1, resolution - 1);
 
-        // Bilinear interpolation for height
+        // Bilinear interpolation for height (more precise)
         const h00 = heightmap[i00];
         const h10 = heightmap[i10];
         const h01 = heightmap[i01];
@@ -581,13 +587,23 @@ export class VegetationSystem {
         const h1 = h01 * (1 - tx) + h11 * tx;
         const elevation = h0 * (1 - tz) + h1 * tz;
 
+        // Also interpolate slope for better accuracy
+        const s00 = slopes[i00];
+        const s10 = slopes[i10];
+        const s01 = slopes[i01];
+        const s11 = slopes[i11];
+
+        const s0 = s00 * (1 - tx) + s10 * tx;
+        const s1 = s01 * (1 - tx) + s11 * tx;
+        const slope = s0 * (1 - tz) + s1 * tz;
+
         // Use nearest neighbor for discrete data (materials, water mask)
         const nearestIndex = Math.round(clampedFz) * resolution + Math.round(clampedFx);
 
         return {
             elevation: elevation,
             biome: materials[nearestIndex],
-            slope: slopes[nearestIndex],
+            slope: slope,
             isWater: waterMask[nearestIndex] > 0,
         };
     }
@@ -635,7 +651,7 @@ export class VegetationSystem {
     }
 
     /**
-     * Create a tree instance
+     * Create a tree instance with consistent deterministic properties
      */
     private createTreeInstance(
         speciesId: number,
@@ -644,24 +660,26 @@ export class VegetationSystem {
         y: number,
         z: number
     ): VegetationInstance {
+        // Use deterministic random based on position for consistent properties
+        const positionSeed = x * 1000 + z * 100 + y;
+        const heightRandom = this.seededRandom(x, z, this.seed + 1);
+        const scaleRandom = this.seededRandom(x, z, this.seed + 2);
+        const rotationRandom = this.seededRandom(x, z, this.seed + 3);
+
         const heightVariation =
-            species.minHeight + this.random() * (species.maxHeight - species.minHeight);
-        const scaleVariation = 0.8 + this.random() * 0.4; // 80%-120% scale variation
+            species.minHeight + heightRandom * (species.maxHeight - species.minHeight);
+        const scaleVariation = 0.8 + scaleRandom * 0.4; // 80%-120% scale variation
 
         // Scale trees properly - the geometry is 25m tall, so scale to desired height
         const baseHeight = 25.0; // Height of the cone geometry
         const heightScale = heightVariation / baseHeight;
 
-        console.log(
-            `VegetationSystem: Creating tree at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}) height: ${heightVariation.toFixed(1)}m`
-        );
-
         return {
-            id: `tree_${speciesId}_${x}_${z}`,
+            id: `tree_${speciesId}_${Math.round(x)}_${Math.round(z)}`,
             type: 'tree',
             speciesId,
             position: new Vector3(x, y, z),
-            rotation: this.random() * Math.PI * 2,
+            rotation: rotationRandom * Math.PI * 2,
             scale: new Vector3(scaleVariation, heightScale, scaleVariation), // Scale height to match species
             distance: 0,
             visible: true,
@@ -845,5 +863,79 @@ export class VegetationSystem {
             seed = (seed * 9301 + 49297) % 233280;
             return seed / 233280;
         };
+    }
+
+    /**
+     * Seeded random number generator for deterministic placement
+     */
+    private seededRandom(x: number, z: number, seed: number): number {
+        const n = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
+        return n - Math.floor(n);
+    }
+
+    /**
+     * Get forest density at a specific location using noise-based clustering
+     */
+    private getForestDensity(worldX: number, worldZ: number, biomeId: number): number {
+        // Use multiple noise scales for natural clustering patterns
+        const largeScaleNoise = this.fractalNoise(worldX * 0.0003, worldZ * 0.0003, 4); // Large forest areas (3km scale)
+        const mediumScaleNoise = this.fractalNoise(worldX * 0.0015, worldZ * 0.0015, 3); // Medium clusters (700m scale)
+        const smallScaleNoise = this.fractalNoise(worldX * 0.008, worldZ * 0.008, 2); // Small clearings (125m scale)
+
+        // Combine noise layers with realistic weightings
+        let density = largeScaleNoise * 0.5 + mediumScaleNoise * 0.3 + smallScaleNoise * 0.2;
+
+        // Normalize to 0-1 range
+        density = (density + 1.0) * 0.5;
+
+        // Apply biome-specific clustering patterns
+        switch (biomeId) {
+            case 3: // Forest biome - dense with clearings
+                density = Math.max(0.3, density);
+                break;
+            case 2: // Grassland - scattered trees in groups
+                density *= 0.15;
+                break;
+            case 5: // Mountain - elevation dependent
+                density *= 0.4;
+                break;
+            case 4: // Desert - very sparse
+                density *= 0.03;
+                break;
+            case 1: // Beach - sparse coastal vegetation
+                density *= 0.08;
+                break;
+            default:
+                density *= 0.1;
+        }
+
+        return Math.max(0, Math.min(1, density));
+    }
+
+    /**
+     * Simple noise function for clustering
+     */
+    private noise(x: number, y: number): number {
+        const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        return n - Math.floor(n);
+    }
+
+    /**
+     * Fractal noise for more complex patterns
+     */
+    private fractalNoise(x: number, y: number, octaves: number = 4): number {
+        let result = 0;
+        let amplitude = 1;
+        let frequency = 1;
+        let maxValue = 0;
+
+        for (let i = 0; i < octaves; i++) {
+            result += this.noise(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2;
+        }
+
+        return (result / maxValue) * 2 - 1; // Normalize to -1 to 1
     }
 }
