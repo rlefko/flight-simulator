@@ -399,22 +399,41 @@ export class TerrainRenderer {
             fn getBiomeColor(materialId: f32, elevation: f32) -> vec3<f32> {
                 let id = i32(materialId);
                 
-                // Biome colors based on BIOME_CONFIG in WorldConstants.ts
+                // Enhanced biome colors with more realistic variation
+                var baseColor: vec3<f32>;
                 switch (id) {
-                    case 0: { return vec3<f32>(0.0, 0.4, 0.8); }      // Ocean
-                    case 1: { return vec3<f32>(0.9, 0.8, 0.6); }      // Beach
-                    case 2: { return vec3<f32>(0.4, 0.7, 0.2); }      // Grassland
-                    case 3: { return vec3<f32>(0.2, 0.5, 0.1); }      // Forest
-                    case 4: { return vec3<f32>(0.9, 0.7, 0.4); }      // Desert
-                    case 5: { return vec3<f32>(0.6, 0.6, 0.6); }      // Mountain
-                    case 6: { return vec3<f32>(0.95, 0.95, 0.95); }   // Snow
-                    case 7: { return vec3<f32>(0.5, 0.6, 0.5); }      // Tundra
-                    case 8: { return vec3<f32>(0.3, 0.5, 0.3); }      // Wetland
-                    case 9: { return vec3<f32>(0.7, 0.7, 0.7); }      // Urban
-                    case 10: { return vec3<f32>(0.1, 0.5, 0.9); }     // Lake
-                    case 11: { return vec3<f32>(0.2, 0.6, 1.0); }     // River
-                    default: { return vec3<f32>(0.4, 0.7, 0.2); }     // Default to grassland
+                    case 0: { baseColor = vec3<f32>(0.1, 0.5, 0.9); }      // Ocean - deeper blue
+                    case 1: { baseColor = vec3<f32>(0.95, 0.85, 0.7); }     // Beach - warmer sand
+                    case 2: { baseColor = vec3<f32>(0.4, 0.9, 0.3); }       // Grassland - vibrant green
+                    case 3: { baseColor = vec3<f32>(0.2, 0.7, 0.2); }       // Forest - rich green
+                    case 4: { baseColor = vec3<f32>(0.95, 0.8, 0.5); }      // Desert - warm sand
+                    case 5: { baseColor = vec3<f32>(0.7, 0.7, 0.8); }       // Mountain - blueish gray
+                    case 6: { baseColor = vec3<f32>(0.98, 0.98, 1.0); }     // Snow - pure white with blue tint
+                    case 7: { baseColor = vec3<f32>(0.6, 0.7, 0.6); }       // Tundra - muted green
+                    case 8: { baseColor = vec3<f32>(0.4, 0.6, 0.4); }       // Wetland - dark green
+                    case 9: { baseColor = vec3<f32>(0.8, 0.8, 0.8); }       // Urban - light gray
+                    case 10: { baseColor = vec3<f32>(0.2, 0.6, 1.0); }      // Lake - bright blue
+                    case 11: { baseColor = vec3<f32>(0.3, 0.7, 1.0); }      // River - flowing blue
+                    default: { baseColor = vec3<f32>(0.5, 0.8, 0.3); }      // Default grassland - brighter
                 }
+                
+                // Add elevation-based variation for more realism
+                let elevationFactor = clamp(elevation / 1000.0, 0.0, 1.0);
+                
+                // Grassland and forest get brown tints at higher elevation
+                if (id == 2 || id == 3) {
+                    let brownTint = vec3<f32>(0.6, 0.4, 0.2);
+                    baseColor = mix(baseColor, brownTint, elevationFactor * 0.3);
+                }
+                
+                // Mountains get snow caps
+                if (id == 5 && elevation > 800.0) {
+                    let snowColor = vec3<f32>(0.95, 0.95, 1.0);
+                    let snowFactor = clamp((elevation - 800.0) / 200.0, 0.0, 1.0);
+                    baseColor = mix(baseColor, snowColor, snowFactor);
+                }
+                
+                return baseColor;
             }
             
             fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
@@ -453,27 +472,47 @@ export class TerrainRenderer {
                 // Base terrain color based on material ID (biome)
                 var baseColor = getBiomeColor(input.materialId, input.worldPos.y);
                 
-                // Add height-based variation for more realism
-                let heightFactor = clamp(input.worldPos.y / 1000.0, 0.0, 1.0);
-                baseColor = mix(baseColor, baseColor * 1.2, heightFactor * 0.3);
+                // Add noise-based texture variation for more realistic surfaces
+                let noiseScale = 0.01;
+                let noiseValue1 = sin(input.worldPos.x * noiseScale) * cos(input.worldPos.z * noiseScale);
+                let noiseValue2 = sin(input.worldPos.x * noiseScale * 2.5) * cos(input.worldPos.z * noiseScale * 2.5);
+                let combinedNoise = (noiseValue1 + noiseValue2 * 0.5) * 0.1;
                 
-                // Calculate lighting
+                // Apply noise variation
+                baseColor += vec3<f32>(combinedNoise, combinedNoise * 0.8, combinedNoise * 0.6);
+                
+                // Add height-based color variation for more realism
+                let heightFactor = clamp(input.worldPos.y / 1000.0, 0.0, 1.0);
+                let heightVariation = mix(0.9, 1.3, heightFactor);
+                baseColor *= heightVariation;
+                
+                // Add slope-based darkening (cliffs and steep areas are darker)
+                let slopeFactor = 1.0 - abs(input.normal.y);
+                let slopeDarkening = mix(1.0, 0.7, slopeFactor);
+                baseColor *= slopeDarkening;
+                
+                // Enhanced lighting calculation
                 let lightDir = -shadowUniforms.lightDirection;
                 let NdotL = max(dot(input.normal, lightDir), 0.0);
                 
                 // Calculate shadow
                 let shadowFactor = calculateShadow(input.worldPos, input.normal, input.viewDepth);
                 
-                // Apply lighting with shadows
-                let ambient = 0.3;
-                let diffuse = 0.7 * NdotL * shadowFactor;
+                // Enhanced lighting with better ambient and diffuse
+                let ambient = 0.4; // Increased ambient for better visibility
+                let diffuse = 0.8 * NdotL * shadowFactor;
                 let lighting = ambient + diffuse;
                 
-                var finalColor = baseColor * lighting * shadowUniforms.lightColor * shadowUniforms.lightIntensity;
+                // Add subtle rim lighting for depth
+                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
+                let rimLight = pow(1.0 - max(dot(viewDir, input.normal), 0.0), 2.0) * 0.2;
                 
-                // Apply atmospheric scattering
+                var finalColor = baseColor * lighting * shadowUniforms.lightColor * shadowUniforms.lightIntensity;
+                finalColor += baseColor * rimLight;
+                
+                // Enhanced atmospheric scattering
                 let distance = length(uniforms.cameraPosition - input.worldPos);
-                let scatteringCoeff = 0.00001;
+                let scatteringCoeff = 0.000008; // Adjusted for better visibility
                 let scattering = 1.0 - exp(-distance * scatteringCoeff);
                 
                 let sunDirection = -shadowUniforms.lightDirection;
@@ -481,22 +520,31 @@ export class TerrainRenderer {
                 let cosTheta = dot(viewDirection, sunDirection);
                 let miePhase = (1.0 + cosTheta * cosTheta) * 0.5;
                 
+                // More realistic sky colors
+                let horizonColor = vec3<f32>(0.6, 0.8, 1.0);
+                let zenithColor = vec3<f32>(0.3, 0.6, 1.0);
+                let sunsetColor = vec3<f32>(1.0, 0.7, 0.4);
+                
                 let skyColor = mix(
-                    vec3<f32>(0.5, 0.7, 1.0),
-                    vec3<f32>(1.0, 0.8, 0.6),
-                    max(0.0, sunDirection.y) * 0.5
+                    mix(horizonColor, zenithColor, max(0.0, sunDirection.y)),
+                    sunsetColor,
+                    max(0.0, cosTheta) * (1.0 - abs(sunDirection.y))
                 );
                 
-                let scatteredLight = skyColor * scattering * miePhase;
+                let scatteredLight = skyColor * scattering * miePhase * 0.3;
                 finalColor += scatteredLight;
                 
-                // Distance fog
-                let fogStart = 10000.0;
-                let fogEnd = 50000.0;
+                // Distance fog with better color blending
+                let fogStart = 15000.0;
+                let fogEnd = 60000.0;
                 let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
-                let fogColor = vec3<f32>(0.7, 0.8, 0.9);
+                let fogColor = skyColor * 0.9; // Use sky color for fog
                 
                 finalColor = mix(fogColor, finalColor, fogFactor);
+                
+                // Color correction and saturation boost
+                finalColor = pow(finalColor, vec3<f32>(0.9)); // Slight gamma correction
+                finalColor = mix(vec3<f32>(dot(finalColor, vec3<f32>(0.299, 0.587, 0.114))), finalColor, 1.2); // Saturation boost
                 
                 return vec4<f32>(finalColor, 1.0);
             }

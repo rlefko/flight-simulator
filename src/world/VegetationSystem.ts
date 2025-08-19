@@ -204,7 +204,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1500,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 5, // Very low density for better visibility
+            density: 100, // Increased density for visibility
             minHeight: 12,
             maxHeight: 25,
             canopyRadius: 8,
@@ -222,7 +222,7 @@ export class VegetationSystem {
             minElevation: 500,
             maxElevation: 3000,
             maxSlope: Math.PI / 4, // 45 degrees
-            density: 3, // Very low density for better visibility
+            density: 80, // Increased density for visibility
             minHeight: 15,
             maxHeight: 35,
             canopyRadius: 5,
@@ -236,7 +236,7 @@ export class VegetationSystem {
             minElevation: -5,
             maxElevation: 50,
             maxSlope: Math.PI / 8, // 22.5 degrees
-            density: 2, // Very low density for better visibility
+            density: 50, // Increased density for visibility
             minHeight: 8,
             maxHeight: 18,
             canopyRadius: 6,
@@ -250,7 +250,7 @@ export class VegetationSystem {
             minElevation: 200,
             maxElevation: 2000,
             maxSlope: Math.PI / 5, // 36 degrees
-            density: 4, // Very low density for better visibility
+            density: 60, // Increased density for visibility
             minHeight: 8,
             maxHeight: 20,
             canopyRadius: 4,
@@ -264,7 +264,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1000,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 1, // Very low density for better visibility
+            density: 20, // Increased density for visibility
             minHeight: 2,
             maxHeight: 8,
             canopyRadius: 1,

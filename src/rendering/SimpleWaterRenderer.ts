@@ -1,5 +1,5 @@
 import { Camera } from './Camera';
-import { Matrix4 } from '../core/math';
+import { Matrix4, Vector3 } from '../core/math';
 import { WaterSurface } from '../world/WaterSystem';
 
 /**
@@ -160,22 +160,39 @@ export class SimpleWaterRenderer {
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Simple water colors
-                let shallowColor = vec3<f32>(0.2, 0.6, 0.8); // Light blue
-                let deepColor = vec3<f32>(0.05, 0.2, 0.4);   // Dark blue
+                // Enhanced water colors - more vibrant and realistic
+                let shallowColor = vec3<f32>(0.4, 0.8, 1.0); // Bright turquoise
+                let deepColor = vec3<f32>(0.1, 0.3, 0.6);    // Deep ocean blue
                 
-                // Depth-based color mixing
-                let depthFactor = clamp(input.depth * 0.01, 0.0, 1.0);
-                let waterColor = mix(shallowColor, deepColor, depthFactor);
+                // Depth-based color mixing with better falloff
+                let depthFactor = clamp(input.depth * 0.005, 0.0, 1.0);
+                var waterColor = mix(shallowColor, deepColor, depthFactor);
                 
-                // Simple lighting
+                // Add animated wave patterns
+                let waveOffset1 = sin(input.uv.x * 20.0 + uniforms.time * 2.0) * 0.1;
+                let waveOffset2 = cos(input.uv.y * 15.0 + uniforms.time * 1.5) * 0.1;
+                let waveIntensity = waveOffset1 + waveOffset2;
+                
+                // Enhance color with wave effects
+                waterColor += vec3<f32>(0.1, 0.15, 0.2) * waveIntensity;
+                
+                // Improved lighting with sun reflection
                 let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.5));
-                let ndotl = max(dot(input.normal, lightDir), 0.3);
+                let ndotl = max(dot(input.normal, lightDir), 0.4); // Higher ambient
                 
-                // Add slight transparency
-                let alpha = 0.85;
+                // Add specular highlights for sun reflection on water
+                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
+                let reflectDir = reflect(-lightDir, input.normal);
+                let specular = pow(max(dot(viewDir, reflectDir), 0.0), 32.0) * 0.5;
                 
-                return vec4<f32>(waterColor * ndotl, alpha);
+                // Fresnel effect for realistic water transparency
+                let fresnel = pow(1.0 - max(dot(viewDir, input.normal), 0.0), 2.0);
+                let alpha = mix(0.7, 0.95, fresnel); // More transparent when looking straight down
+                
+                // Final color with enhanced lighting and specular
+                let finalColor = waterColor * ndotl + vec3<f32>(1.0, 1.0, 0.9) * specular;
+                
+                return vec4<f32>(finalColor, alpha);
             }
         `;
     }
@@ -267,13 +284,45 @@ export class SimpleWaterRenderer {
             return;
         }
 
+        // Always render a simple ocean plane if no water surfaces
+        if (surfaces.length === 0) {
+            // Create a default ocean surface - much larger for better visibility
+            const defaultOcean: WaterSurface = {
+                id: 'default-ocean',
+                center: new Vector3(0, 0, 0),
+                bounds: { minX: -50000, maxX: 50000, minZ: -50000, maxZ: 50000 }, // Much larger ocean
+                type: 'ocean',
+                depth: 50,
+                area: 10000000000, // Updated area
+                windDirection: new Vector3(1, 0, 0),
+                waveHeight: 0.5,
+                currentStrength: 0.1,
+                foamDensity: 0.1,
+            };
+            surfaces = [defaultOcean];
+        }
+
         renderPass.setPipeline(this.pipeline);
 
         // Update uniforms
         const viewMatrix = camera.getViewMatrix();
         const projectionMatrix = camera.getProjectionMatrix();
         const mvpMatrix = new Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-        const cameraPos = camera.getPosition();
+
+        // Get camera position with fallback
+        let cameraPos;
+        try {
+            cameraPos = camera.getPosition();
+        } catch (e) {
+            console.error('SimpleWaterRenderer: Error getting camera position:', e);
+            cameraPos = { x: 0, y: 100, z: 0 }; // Fallback position
+        }
+
+        // Safety check for camera position
+        if (!cameraPos || typeof cameraPos.x === 'undefined') {
+            console.error('SimpleWaterRenderer: Camera position is invalid, using fallback');
+            cameraPos = { x: 0, y: 100, z: 0 };
+        }
 
         const uniformData = new Float32Array(64);
         uniformData.set(mvpMatrix.elements, 0);

@@ -121,13 +121,11 @@ export class WorldManager {
         // Clean up vegetation for tiles that are no longer visible
         this.cleanupVegetation(visibleTiles);
 
-        // SKIP WATER FOR NOW
-        /*
+        // Extract and update water
         this.waterSystem.extractWaterFromTerrain(renderableTiles);
 
         // Update water simulation
         this.waterSystem.update(deltaTime, cameraPosition);
-        */
     }
 
     /**

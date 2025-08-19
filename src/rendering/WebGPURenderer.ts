@@ -14,6 +14,7 @@ import { WaterSystem } from '../world/WaterSystem';
 import { PerformanceOptimizer } from './PerformanceOptimizer';
 import { VegetationRenderer } from './VegetationRenderer';
 import { SimpleVegetationRenderer } from './SimpleVegetationRenderer';
+import { SimpleGrassRenderer } from './SimpleGrassRenderer';
 import type { VegetationPlacement } from '../world/VegetationSystem';
 
 export interface WebGPURenderingCapabilities {
@@ -102,6 +103,7 @@ export class WebGPURenderer {
     private performanceOptimizer: PerformanceOptimizer | null = null;
     private vegetationRenderer: VegetationRenderer | null = null;
     private simpleVegetationRenderer: SimpleVegetationRenderer | null = null;
+    private simpleGrassRenderer: SimpleGrassRenderer | null = null;
     private useSimpleRenderers: boolean = true; // Use simplified renderers for stability
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
@@ -287,6 +289,9 @@ export class WebGPURenderer {
 
             this.simpleVegetationRenderer = new SimpleVegetationRenderer(this.device);
             await this.simpleVegetationRenderer.initialize();
+
+            this.simpleGrassRenderer = new SimpleGrassRenderer(this.device);
+            await this.simpleGrassRenderer.initialize();
 
             console.log('WebGPURenderer: Using simplified renderers for stability');
         } else {
@@ -621,7 +626,7 @@ export class WebGPURenderer {
                             {
                                 view: usesMSAA ? this.msaaTextureView! : textureView,
                                 resolveTarget: usesMSAA ? textureView : undefined,
-                                clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1.0 }, // Sky blue color
+                                clearValue: { r: 0.4, g: 0.7, b: 1.0, a: 1.0 }, // Enhanced sky blue color
                                 loadOp: 'clear',
                                 storeOp: 'store',
                             },
@@ -734,13 +739,21 @@ export class WebGPURenderer {
                                 // Convert placements to simple tree instances
                                 const trees: any[] = [];
                                 for (const placement of this.vegetationPlacements.values()) {
-                                    trees.push({
-                                        position: placement.position,
-                                        scale: placement.scale.x,
-                                        rotation: placement.rotation,
-                                    });
+                                    // Iterate over actual vegetation instances within each placement
+                                    for (const instance of placement.instances) {
+                                        if (instance.type === 'tree' && instance.visible) {
+                                            trees.push({
+                                                position: instance.position,
+                                                scale: instance.scale ? instance.scale.x : 1.0,
+                                                rotation: instance.rotation || 0,
+                                            });
+                                        }
+                                    }
                                 }
 
+                                console.log(
+                                    `SimpleVegetationRenderer: Rendering ${trees.length} trees`
+                                );
                                 this.simpleVegetationRenderer.updateInstances(trees);
                                 this.simpleVegetationRenderer.render(
                                     renderPass,
@@ -763,6 +776,29 @@ export class WebGPURenderer {
                             }
 
                             this.renderStats.renderTime += performance.now() - vegetationStartTime;
+                        }
+
+                        // Render grass for ground cover
+                        if (this.useSimpleRenderers && this.simpleGrassRenderer) {
+                            const grassStartTime = performance.now();
+
+                            // Generate grass instances if not already done
+                            // Use the first terrain tile bounds as reference
+                            if (this.terrainTiles.length > 0) {
+                                const firstTile = this.terrainTiles[0];
+                                this.simpleGrassRenderer.generateGrassInstances(
+                                    firstTile.worldBounds,
+                                    5000
+                                );
+
+                                this.simpleGrassRenderer.render(
+                                    renderPass,
+                                    this.camera,
+                                    performance.now() / 1000
+                                );
+                            }
+
+                            this.renderStats.renderTime += performance.now() - grassStartTime;
                         }
                     } else if (this.testPipeline && this.testTriangleBuffer) {
                         // Fallback to test triangle if no terrain
@@ -1212,6 +1248,11 @@ export class WebGPURenderer {
         if (this.vegetationRenderer) {
             this.vegetationRenderer.dispose();
             this.vegetationRenderer = null;
+        }
+
+        if (this.simpleGrassRenderer) {
+            this.simpleGrassRenderer.destroy();
+            this.simpleGrassRenderer = null;
         }
 
         if (this.waterSystem) {
