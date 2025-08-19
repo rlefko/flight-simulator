@@ -14,6 +14,12 @@ export { WebGL2Fallback } from './WebGL2Fallback';
 export { VegetationRenderer } from './VegetationRenderer';
 export type { VegetationBatch } from './VegetationRenderer';
 
+// Grass rendering
+export { GrassRenderer } from './GrassRenderer';
+export type { GrassInstance, GrassPatch, GrassWindParams } from './GrassRenderer';
+export { GrassOverlayRenderer } from './GrassOverlayRenderer';
+export type { GrassOverlay, GrassTextureLayer } from './GrassOverlayRenderer';
+
 // Pipeline exports
 export { RenderPipeline } from './pipeline/RenderPipeline';
 export { ShaderManager } from './pipeline/ShaderManager';

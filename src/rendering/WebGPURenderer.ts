@@ -15,7 +15,11 @@ import { PerformanceOptimizer } from './PerformanceOptimizer';
 import { VegetationRenderer } from './VegetationRenderer';
 import { SimpleVegetationRenderer } from './SimpleVegetationRenderer';
 import { SimpleGrassRenderer } from './SimpleGrassRenderer';
+import { GrassRenderer } from './GrassRenderer';
+import { GrassOverlayRenderer } from './GrassOverlayRenderer';
 import type { VegetationPlacement } from '../world/VegetationSystem';
+import { GrassDistribution } from '../world/GrassDistribution';
+import type { GrassCluster } from '../world/GrassDistribution';
 
 export interface WebGPURenderingCapabilities {
     maxTextureSize: number;
@@ -104,7 +108,12 @@ export class WebGPURenderer {
     private vegetationRenderer: VegetationRenderer | null = null;
     private simpleVegetationRenderer: SimpleVegetationRenderer | null = null;
     private simpleGrassRenderer: SimpleGrassRenderer | null = null;
-    private useSimpleRenderers: boolean = true; // Use simplified renderers for stability
+    private grassRenderer: GrassRenderer | null = null;
+    private grassOverlayRenderer: GrassOverlayRenderer | null = null;
+    private grassDistribution: GrassDistribution | null = null;
+    private grassClusters: Map<string, GrassCluster[]> = new Map();
+    private vegetationSystem: any = null; // Will be set by external system
+    private useSimpleRenderers: boolean = false; // Use advanced renderers
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;
@@ -328,6 +337,17 @@ export class WebGPURenderer {
             // Create vegetation renderer
             this.vegetationRenderer = new VegetationRenderer(this.device, this.shaderManager);
             await this.vegetationRenderer.initialize();
+
+            // Create grass renderer
+            this.grassRenderer = new GrassRenderer(this.device, this.shaderManager);
+            await this.grassRenderer.initialize();
+
+            // Create grass overlay renderer
+            this.grassOverlayRenderer = new GrassOverlayRenderer(this.device);
+            await this.grassOverlayRenderer.initialize();
+
+            // Create grass distribution system
+            this.grassDistribution = new GrassDistribution(12345);
         }
 
         // Create performance optimizer
@@ -780,12 +800,72 @@ export class WebGPURenderer {
                         }
 
                         // Render grass for ground cover
-                        // Temporarily disable grass rendering to avoid pipeline errors
-                        if (false && this.useSimpleRenderers && this.simpleGrassRenderer) {
+                        if (
+                            !this.useSimpleRenderers &&
+                            this.grassRenderer &&
+                            this.grassDistribution
+                        ) {
                             const grassStartTime = performance.now();
 
-                            // Generate grass instances if not already done
-                            // Use the first terrain tile bounds as reference
+                            // Generate/update grass for terrain tiles
+                            for (const tile of this.terrainTiles) {
+                                if (!this.grassClusters.has(tile.id)) {
+                                    // Get grass types from vegetation system
+                                    const grassTypes = this.vegetationSystem?.getGrassTypes();
+                                    if (grassTypes && tile.terrainData) {
+                                        // Generate grass clusters for this tile
+                                        const clusters =
+                                            this.grassDistribution.generateGrassDistribution(
+                                                tile,
+                                                grassTypes,
+                                                {
+                                                    temperature: 15,
+                                                    moisture: 0.6,
+                                                    season:
+                                                        0.25 +
+                                                        (Math.sin(performance.now() * 0.0001) + 1) *
+                                                            0.5, // Seasonal variation
+                                                }
+                                            );
+                                        this.grassClusters.set(tile.id, clusters);
+
+                                        // Generate grass instances from clusters
+                                        this.grassRenderer.generateGrassForTile(
+                                            tile,
+                                            grassTypes,
+                                            this.camera.getPosition()
+                                        );
+
+                                        // Generate grass overlay for mid-range rendering
+                                        if (this.grassOverlayRenderer) {
+                                            this.grassOverlayRenderer.generateOverlayForTile(
+                                                tile,
+                                                clusters,
+                                                new Vector3(1, 0, 0.3).normalize(), // Wind direction
+                                                1.5, // Wind strength
+                                                performance.now() / 1000
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Update grass LOD and wind
+                            this.grassRenderer.updateLOD(this.camera.getPosition());
+                            this.grassRenderer.updateWind(
+                                deltaTime,
+                                new Vector3(1, 0, 0.3).normalize(),
+                                1.5 + Math.sin(performance.now() * 0.001) * 0.5
+                            );
+
+                            // Render grass
+                            this.grassRenderer.render(renderPass, this.camera);
+
+                            this.renderStats.renderTime += performance.now() - grassStartTime;
+                        } else if (this.useSimpleRenderers && this.simpleGrassRenderer) {
+                            const grassStartTime = performance.now();
+
+                            // Use simple grass renderer as fallback
                             if (this.terrainTiles.length > 0) {
                                 const firstTile = this.terrainTiles[0];
                                 this.simpleGrassRenderer.generateGrassInstances(
@@ -1164,6 +1244,18 @@ export class WebGPURenderer {
         return this.vegetationRenderer;
     }
 
+    public setVegetationSystem(vegetationSystem: any): void {
+        this.vegetationSystem = vegetationSystem;
+    }
+
+    public getGrassRenderer(): GrassRenderer | null {
+        return this.grassRenderer;
+    }
+
+    public getGrassOverlayRenderer(): GrassOverlayRenderer | null {
+        return this.grassOverlayRenderer;
+    }
+
     /**
      * Get water system for external configuration
      */
@@ -1256,6 +1348,23 @@ export class WebGPURenderer {
             this.simpleGrassRenderer.destroy();
             this.simpleGrassRenderer = null;
         }
+
+        if (this.grassRenderer) {
+            this.grassRenderer.dispose();
+            this.grassRenderer = null;
+        }
+
+        if (this.grassOverlayRenderer) {
+            this.grassOverlayRenderer.dispose();
+            this.grassOverlayRenderer = null;
+        }
+
+        if (this.grassDistribution) {
+            this.grassDistribution.clearAll();
+            this.grassDistribution = null;
+        }
+
+        this.grassClusters.clear();
 
         if (this.waterSystem) {
             this.waterSystem.clear();

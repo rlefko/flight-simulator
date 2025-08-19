@@ -22,6 +22,9 @@ export * from './SceneryManager';
 // Vegetation system
 export * from './VegetationSystem';
 
+// Grass distribution system
+export * from './GrassDistribution';
+
 // Water and ocean simulation
 export * from './WaterSystem';
 

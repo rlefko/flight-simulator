@@ -106,6 +106,22 @@ export class ShaderManager {
                 { group: 0, binding: 3, type: 'sampler', name: 'textureSampler' },
             ],
         });
+
+        // Load grass shader
+        const grassShaderSource = await this.loadShaderSource('/src/rendering/shaders/grass.wgsl');
+        const grassModule = this.device.createShaderModule({
+            label: 'Grass Shader Module',
+            code: grassShaderSource,
+        });
+
+        this.shaderCache['grass'] = grassModule;
+        this.shaderInfo.set('grass', {
+            bindings: [
+                { group: 0, binding: 0, type: 'uniform', name: 'uniforms' },
+                { group: 0, binding: 1, type: 'texture', name: 'grass_texture' },
+                { group: 0, binding: 2, type: 'sampler', name: 'grass_sampler' },
+            ],
+        });
     }
 
     private setupIncludeResolver(): void {
