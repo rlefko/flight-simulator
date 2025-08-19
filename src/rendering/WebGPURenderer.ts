@@ -763,10 +763,21 @@ export class WebGPURenderer {
                                     // Iterate over actual vegetation instances within each placement
                                     for (const instance of placement.instances) {
                                         if (instance.type === 'tree' && instance.visible) {
+                                            // Debug first few trees
+                                            if (trees.length < 3) {
+                                                console.log(`Tree ${trees.length}:`, {
+                                                    position: instance.position,
+                                                    scale: instance.scale,
+                                                    rotation: instance.rotation,
+                                                });
+                                            }
+
                                             trees.push({
                                                 position: instance.position,
-                                                scale: instance.scale ? instance.scale.x : 1.0,
+                                                scale: instance.scale ? instance.scale.y : 1.0, // Use Y scale for height
                                                 rotation: instance.rotation || 0,
+                                                scaleX: instance.scale ? instance.scale.x : 1.0, // Store X scale separately
+                                                scaleZ: instance.scale ? instance.scale.z : 1.0, // Store Z scale separately
                                             });
                                         }
                                     }
@@ -775,6 +786,11 @@ export class WebGPURenderer {
                                 console.log(
                                     `SimpleVegetationRenderer: Rendering ${trees.length} trees`
                                 );
+
+                                if (trees.length > 0) {
+                                    const firstTree = trees[0];
+                                    console.log('First tree details:', firstTree);
+                                }
                                 this.simpleVegetationRenderer.updateInstances(trees);
                                 this.simpleVegetationRenderer.render(
                                     renderPass,

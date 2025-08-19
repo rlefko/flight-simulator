@@ -62,75 +62,106 @@ export class SimpleVegetationRenderer {
      * Initialize the vegetation pipeline
      */
     public async initialize(): Promise<void> {
+        console.log('SimpleVegetationRenderer: Starting initialization...');
+
         // Create tree geometry
         this.createTreeGeometry();
 
+        if (!this.treeGeometry) {
+            throw new Error('SimpleVegetationRenderer: Failed to create tree geometry');
+        }
+
+        console.log(
+            'SimpleVegetationRenderer: Tree geometry created with',
+            this.treeGeometry.indexCount,
+            'indices'
+        );
+
         // Load shader
         const shaderCode = this.getShaderCode();
-        const shaderModule = this.device.createShaderModule({
-            label: 'Simple Vegetation Shader',
-            code: shaderCode,
-        });
+        console.log(
+            'SimpleVegetationRenderer: Shader code length:',
+            shaderCode.length,
+            'characters'
+        );
+
+        let shaderModule;
+        try {
+            shaderModule = this.device.createShaderModule({
+                label: 'Simple Vegetation Shader',
+                code: shaderCode,
+            });
+            console.log('SimpleVegetationRenderer: Shader module created successfully');
+        } catch (error) {
+            console.error('SimpleVegetationRenderer: Shader compilation failed:', error);
+            throw error;
+        }
 
         // Create pipeline
-        this.pipeline = this.device.createRenderPipeline({
-            label: 'Simple Vegetation Pipeline',
-            layout: this.device.createPipelineLayout({
-                bindGroupLayouts: [this.bindGroupLayout],
-            }),
-            vertex: {
-                module: shaderModule,
-                entryPoint: 'vs_main',
-                buffers: [
-                    // Vertex buffer
-                    {
-                        arrayStride: 32, // position(12) + normal(12) + color(8) = 32 bytes
-                        attributes: [
-                            { format: 'float32x3', offset: 0, shaderLocation: 0 }, // position
-                            { format: 'float32x3', offset: 12, shaderLocation: 1 }, // normal
-                            { format: 'float32x2', offset: 24, shaderLocation: 2 }, // uv/color
-                        ],
-                    },
-                    // Instance buffer with enhanced data
-                    {
-                        arrayStride: 48,
-                        stepMode: 'instance',
-                        attributes: [
-                            { format: 'float32x3', offset: 0, shaderLocation: 3 }, // instance position
-                            { format: 'float32', offset: 12, shaderLocation: 4 }, // scale
-                            { format: 'float32', offset: 16, shaderLocation: 5 }, // rotation
-                            { format: 'float32', offset: 20, shaderLocation: 6 }, // species
-                            { format: 'float32', offset: 24, shaderLocation: 7 }, // age variation
-                            { format: 'float32', offset: 28, shaderLocation: 8 }, // health variation
-                        ],
-                    },
-                ],
-            },
-            fragment: {
-                module: shaderModule,
-                entryPoint: 'fs_main',
-                targets: [
-                    {
-                        format: navigator.gpu.getPreferredCanvasFormat(),
-                    },
-                ],
-            },
-            primitive: {
-                topology: 'triangle-list',
-                cullMode: 'back',
-                frontFace: 'ccw',
-            },
-            depthStencil: {
-                depthWriteEnabled: true,
-                depthCompare: 'less',
-                format: 'depth24plus',
-            },
-            multisample: {
-                count: 4,
-            },
-        });
+        try {
+            this.pipeline = this.device.createRenderPipeline({
+                label: 'Simple Vegetation Pipeline',
+                layout: this.device.createPipelineLayout({
+                    bindGroupLayouts: [this.bindGroupLayout],
+                }),
+                vertex: {
+                    module: shaderModule,
+                    entryPoint: 'vs_main',
+                    buffers: [
+                        // Vertex buffer
+                        {
+                            arrayStride: 32, // position(12) + normal(12) + color(8) = 32 bytes
+                            attributes: [
+                                { format: 'float32x3', offset: 0, shaderLocation: 0 }, // position
+                                { format: 'float32x3', offset: 12, shaderLocation: 1 }, // normal
+                                { format: 'float32x2', offset: 24, shaderLocation: 2 }, // uv/color
+                            ],
+                        },
+                        // Instance buffer with enhanced data
+                        {
+                            arrayStride: 48,
+                            stepMode: 'instance',
+                            attributes: [
+                                { format: 'float32x3', offset: 0, shaderLocation: 3 }, // instance position
+                                { format: 'float32', offset: 12, shaderLocation: 4 }, // scale
+                                { format: 'float32', offset: 16, shaderLocation: 5 }, // rotation
+                                { format: 'float32', offset: 20, shaderLocation: 6 }, // species
+                                { format: 'float32', offset: 24, shaderLocation: 7 }, // age variation
+                                { format: 'float32', offset: 28, shaderLocation: 8 }, // health variation
+                            ],
+                        },
+                    ],
+                },
+                fragment: {
+                    module: shaderModule,
+                    entryPoint: 'fs_main',
+                    targets: [
+                        {
+                            format: navigator.gpu.getPreferredCanvasFormat(),
+                        },
+                    ],
+                },
+                primitive: {
+                    topology: 'triangle-list',
+                    cullMode: 'none', // Disable culling for debugging
+                    frontFace: 'ccw',
+                },
+                depthStencil: {
+                    depthWriteEnabled: true,
+                    depthCompare: 'less',
+                    format: 'depth24plus',
+                },
+                multisample: {
+                    count: 4,
+                },
+            });
+            console.log('SimpleVegetationRenderer: Pipeline created successfully');
+        } catch (error) {
+            console.error('SimpleVegetationRenderer: Pipeline creation failed:', error);
+            throw error;
+        }
 
-        console.log('SimpleVegetationRenderer: Pipeline initialized');
+        console.log('SimpleVegetationRenderer: Initialization complete');
     }
 
     /**
@@ -223,8 +254,8 @@ export class SimpleVegetationRenderer {
                 output.variations = vec2<f32>(input.ageVariation, input.healthVariation);
                 
                 // Enhanced tree coloring based on height and tree parts
-                let heightFactor = clamp(input.position.y / 50.0, 0.0, 1.0);
-                let trunkHeightThreshold = 12.0 / 50.0; // Normalize trunk height
+                let heightFactor = clamp(input.position.y / 25.0, 0.0, 1.0);
+                let trunkHeightThreshold = 0.3; // 30% of tree is trunk
                 
                 var finalColor: vec3<f32>;
                 
@@ -322,7 +353,7 @@ export class SimpleVegetationRenderer {
                 
                 // Add subtle wind-based color shifting
                 var windAdjustedColor = healthAdjustedColor;
-                if (input.worldPos.y > 12.0) { // Only affect crown
+                if (input.worldPos.y > (input.instancePosition.y + 7.5)) { // Only affect crown (above trunk)
                     let windEffect = sin(uniforms.time * 2.0 + input.worldPos.x * 0.1) * 0.02;
                     windAdjustedColor += vec3<f32>(windEffect, windEffect * 0.5, windEffect * 0.3);
                 }
@@ -331,7 +362,7 @@ export class SimpleVegetationRenderer {
                 var finalColor = windAdjustedColor * totalLighting;
                 
                 // Add subtle subsurface scattering for leaves
-                if (input.worldPos.y > 12.0) { // Crown only
+                if (input.worldPos.y > (input.instancePosition.y + 7.5)) { // Crown only
                     let backLight = max(0.0, -dot(normal, sunDir)) * 0.3;
                     let scatterColor = vec3<f32>(0.4, 0.8, 0.2) * backLight;
                     finalColor += scatterColor;
@@ -401,12 +432,14 @@ export class SimpleVegetationRenderer {
         const vertices: number[] = [];
         const indices: number[] = [];
 
-        // Enhanced tree geometry with trunk and foliage crown
-        const trunkHeight = 12.0;
+        // Enhanced tree geometry with trunk and foliage crown - scale to match VegetationSystem expectations (25 units)
+        const totalDesiredHeight = 25.0; // Match VegetationSystem expectation
+        const trunkHeightRatio = 0.3; // 30% trunk, 70% crown
+        const trunkHeight = totalDesiredHeight * trunkHeightRatio; // 7.5 units
+        const crownHeight = totalDesiredHeight * (1 - trunkHeightRatio); // 17.5 units
         const trunkRadius = 1.5;
-        const crownHeight = 35.0;
-        const crownRadius = 12.0; // Wider crown for more realistic appearance
-        const segments = 16; // More segments for smoother appearance
+        const crownRadius = 8.0; // Proportional crown radius
+        const segments = 12; // Reduced for performance
 
         let vertexIndex = 0;
 
@@ -587,19 +620,43 @@ export class SimpleVegetationRenderer {
         };
 
         console.log('SimpleVegetationRenderer: Created tree geometry');
+        console.log('- Vertices:', vertices.length / 8, 'vertices'); // 8 floats per vertex
+        console.log('- Indices:', indices.length, 'indices');
+        console.log('- Triangles:', indices.length / 3, 'triangles');
+        console.log('- First few vertices:', vertices.slice(0, 24)); // First 3 vertices
+        console.log('- First few indices:', indices.slice(0, 12)); // First 4 triangles
     }
 
     /**
      * Update tree instances with consistent deterministic properties
      */
     public updateInstances(trees: TreeInstance[]): void {
-        if (!this.instanceBuffer) return;
+        if (!this.instanceBuffer) {
+            console.error('SimpleVegetationRenderer: No instance buffer available');
+            return;
+        }
+
+        console.log('SimpleVegetationRenderer: Updating instances with', trees.length, 'trees');
+
+        // ADD DEBUG TREE: Place a large tree at origin for testing
+        const debugTree = {
+            position: { x: 0, y: 50, z: 0 }, // 50 units above ground at origin
+            scale: 5.0, // Very large scale
+            rotation: 0,
+            species: 0,
+        };
+
+        const allTrees = [debugTree, ...trees]; // Add debug tree first
+        console.log(
+            'SimpleVegetationRenderer: Added debug tree at origin, total trees:',
+            allTrees.length
+        );
 
         // Limit instances to prevent buffer overflow
-        const instancesToRender = Math.min(trees.length, this.maxInstances);
-        if (trees.length > this.maxInstances) {
+        const instancesToRender = Math.min(allTrees.length, this.maxInstances);
+        if (allTrees.length > this.maxInstances) {
             console.warn(
-                `SimpleVegetationRenderer: Limiting trees from ${trees.length} to ${this.maxInstances}`
+                `SimpleVegetationRenderer: Limiting trees from ${allTrees.length} to ${this.maxInstances}`
             );
         }
 
@@ -607,7 +664,16 @@ export class SimpleVegetationRenderer {
         let offset = 0;
 
         for (let i = 0; i < instancesToRender; i++) {
-            const tree = trees[i];
+            const tree = allTrees[i];
+
+            // Debug first few trees
+            if (i < 3) {
+                console.log(`Tree ${i}:`, {
+                    position: tree.position,
+                    scale: tree.scale,
+                    rotation: tree.rotation,
+                });
+            }
 
             // Use deterministic variations based on tree position (no random flickering)
             const positionSeed = tree.position.x * 1000 + tree.position.z * 100 + tree.position.y;
@@ -621,9 +687,18 @@ export class SimpleVegetationRenderer {
             instanceData[offset++] = tree.position.y;
             instanceData[offset++] = tree.position.z;
 
-            // Scale with consistent variation
+            // Scale with consistent variation - ensure it's not too small
             const baseScale = tree.scale || 1.0;
-            instanceData[offset++] = baseScale * scaleVariation;
+            let finalScale;
+
+            if (i === 0) {
+                // Debug tree - always large and visible
+                finalScale = 5.0;
+            } else {
+                finalScale = Math.max(0.5, baseScale * scaleVariation); // Minimum 0.5 scale
+            }
+
+            instanceData[offset++] = finalScale;
 
             // Rotation (use original rotation without random variation)
             instanceData[offset++] = tree.rotation;
@@ -641,6 +716,12 @@ export class SimpleVegetationRenderer {
 
         this.device.queue.writeBuffer(this.instanceBuffer, 0, instanceData);
         this.instanceCount = instancesToRender;
+
+        console.log(
+            'SimpleVegetationRenderer: Updated instance buffer with',
+            instancesToRender,
+            'trees (including debug tree)'
+        );
     }
 
     /**
@@ -655,9 +736,22 @@ export class SimpleVegetationRenderer {
      * Render vegetation
      */
     public render(renderPass: GPURenderPassEncoder, camera: Camera, time: number): void {
-        if (!this.pipeline || !this.treeGeometry || this.instanceCount === 0) {
+        if (!this.pipeline) {
+            console.warn('SimpleVegetationRenderer: No pipeline available for rendering');
             return;
         }
+
+        if (!this.treeGeometry) {
+            console.warn('SimpleVegetationRenderer: No tree geometry available for rendering');
+            return;
+        }
+
+        if (this.instanceCount === 0) {
+            console.warn('SimpleVegetationRenderer: No instances to render');
+            return;
+        }
+
+        console.log('SimpleVegetationRenderer: Rendering', this.instanceCount, 'tree instances');
 
         renderPass.setPipeline(this.pipeline);
 
@@ -710,7 +804,19 @@ export class SimpleVegetationRenderer {
         renderPass.setVertexBuffer(0, this.treeGeometry.vertexBuffer);
         renderPass.setVertexBuffer(1, this.instanceBuffer!);
         renderPass.setIndexBuffer(this.treeGeometry.indexBuffer, 'uint16');
-        renderPass.drawIndexed(this.treeGeometry.indexCount, this.instanceCount);
+
+        try {
+            renderPass.drawIndexed(this.treeGeometry.indexCount, this.instanceCount);
+            console.log(
+                'SimpleVegetationRenderer: Draw call successful -',
+                this.treeGeometry.indexCount,
+                'indices,',
+                this.instanceCount,
+                'instances'
+            );
+        } catch (error) {
+            console.error('SimpleVegetationRenderer: Draw call failed:', error);
+        }
     }
 
     /**
