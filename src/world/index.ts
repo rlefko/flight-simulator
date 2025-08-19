@@ -106,6 +106,7 @@ export class WorldManager {
         const renderableTiles = this.terrainGenerator.getRenderableTiles();
 
         // Generate vegetation for new terrain tiles
+        console.log('WorldManager: Processing', renderableTiles.length, 'renderable tiles');
         for (const tile of renderableTiles) {
             if (!this.vegetationPlacements.has(tile.id)) {
                 console.log('WorldManager: Generating vegetation for tile', tile.id);

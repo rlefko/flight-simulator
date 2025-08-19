@@ -21,6 +21,7 @@ export class TerrainRenderer {
     private shadowBindGroupLayout: GPUBindGroupLayout | null = null;
     private shadowBindGroup: GPUBindGroup | null = null;
     private pipelineLayout: GPUPipelineLayout;
+    private sampleCount: number = 4;
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -102,6 +103,18 @@ export class TerrainRenderer {
 
         this.createPipeline();
         this.createShadowPipeline();
+    }
+
+    /**
+     * Update sample count for MSAA
+     */
+    public setSampleCount(sampleCount: number): void {
+        if (this.sampleCount !== sampleCount) {
+            this.sampleCount = sampleCount;
+            // Recreate pipelines with new sample count
+            this.createPipeline();
+            this.createShadowPipeline();
+        }
     }
 
     private createShadowPipeline(): void {
@@ -246,6 +259,9 @@ export class TerrainRenderer {
                 depthWriteEnabled: true,
                 depthCompare: 'less',
                 format: 'depth24plus',
+            },
+            multisample: {
+                count: this.sampleCount, // Match MSAA sample count
             },
         });
     }

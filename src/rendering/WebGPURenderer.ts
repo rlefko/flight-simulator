@@ -583,6 +583,19 @@ export class WebGPURenderer {
                     // NOW begin the main render pass after all pre-passes are complete
                     // Use MSAA if available for anti-aliasing
                     const usesMSAA = this.qualitySettings.msaaSamples > 1 && this.msaaTextureView;
+
+                    if (this.frameCount % 120 === 0) {
+                        // Log every 2 seconds
+                        console.log(
+                            'WebGPURenderer: MSAA status - usesMSAA:',
+                            usesMSAA,
+                            'sampleCount:',
+                            this.qualitySettings.msaaSamples,
+                            'msaaTextureView exists:',
+                            !!this.msaaTextureView
+                        );
+                    }
+
                     const renderPass = commandEncoder.beginRenderPass({
                         label: 'Main Render Pass',
                         colorAttachments: [
@@ -838,7 +851,7 @@ export class WebGPURenderer {
             `,
         });
 
-        // Create pipeline
+        // Create pipeline with MSAA support
         this.testPipeline = this.device.createRenderPipeline({
             label: 'Test Triangle Pipeline',
             layout: 'auto',
@@ -880,6 +893,9 @@ export class WebGPURenderer {
                 depthCompare: 'less',
                 format: 'depth24plus',
             },
+            multisample: {
+                count: this.qualitySettings.msaaSamples, // Match MSAA sample count
+            },
         });
 
         console.log('Test triangle created successfully');
@@ -908,7 +924,35 @@ export class WebGPURenderer {
     private createMSAATextures(): void {
         if (!this.device || !this.canvas) return;
 
-        const sampleCount = this.qualitySettings.msaaSamples;
+        let sampleCount = this.qualitySettings.msaaSamples;
+
+        // Check if the device supports the requested sample count
+        const supportedSampleCounts = [4, 2, 1]; // Try in order of preference
+        let actualSampleCount = 1;
+
+        for (const count of supportedSampleCounts) {
+            if (count <= sampleCount) {
+                try {
+                    // Test if this sample count is supported by trying to create a test texture
+                    const testTexture = this.device.createTexture({
+                        size: [1, 1],
+                        format: this.colorFormat,
+                        sampleCount: count,
+                        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                    });
+                    testTexture.destroy();
+                    actualSampleCount = count;
+                    break;
+                } catch (error) {
+                    console.warn(`MSAA ${count}x not supported, trying next lower setting`);
+                }
+            }
+        }
+
+        sampleCount = actualSampleCount;
+
+        // Update quality settings with the actual supported sample count
+        this.qualitySettings.msaaSamples = sampleCount;
 
         // Only create MSAA textures if sample count > 1
         if (sampleCount <= 1) {
@@ -916,6 +960,7 @@ export class WebGPURenderer {
             this.msaaTextureView = null;
             this.msaaDepthTexture = null;
             this.msaaDepthTextureView = null;
+            console.log('MSAA disabled - using 1x sampling');
             return;
         }
 
@@ -948,6 +993,13 @@ export class WebGPURenderer {
         this.msaaDepthTextureView = this.msaaDepthTexture.createView();
 
         console.log(`MSAA textures created with ${sampleCount}x sampling`);
+        console.log('MSAA texture size:', this.canvas.width, 'x', this.canvas.height);
+        console.log('MSAA enabled:', this.msaaTexture !== null && this.msaaTextureView !== null);
+
+        // Update terrain renderer sample count
+        if (this.terrainRenderer) {
+            this.terrainRenderer.setSampleCount(sampleCount);
+        }
     }
 
     public setTerrainTiles(tiles: TerrainTile[]): void {

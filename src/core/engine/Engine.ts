@@ -417,6 +417,10 @@ export class Engine {
 
             // Update vegetation data for renderer
             const vegetationPlacements = this.world.getVegetationPlacements();
+            if (this.frameCount % 60 === 0) {
+                // Log every second
+                console.log('Engine: Vegetation placements:', vegetationPlacements.size, 'tiles');
+            }
             (this.renderer as any).setVegetationPlacements?.(vegetationPlacements);
         }
 

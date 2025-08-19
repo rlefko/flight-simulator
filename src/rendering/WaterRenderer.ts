@@ -490,6 +490,9 @@ export class WaterRenderer {
                 depthCompare: 'less',
                 format: 'depth24plus',
             },
+            multisample: {
+                count: 4, // Match MSAA sample count
+            },
         });
     }
 
@@ -844,7 +847,13 @@ export class WaterRenderer {
         time: number
     ): void {
         if (!this.pipeline) {
+            console.warn('WaterRenderer: No pipeline available for rendering');
             return;
+        }
+
+        // Debug logging every 60 frames
+        if (Math.floor(time * 60) % 60 === 0) {
+            console.log('WaterRenderer: Rendering', visibleSurfaces.length, 'water surfaces');
         }
 
         const startTime = performance.now();
@@ -859,12 +868,19 @@ export class WaterRenderer {
 
         for (const surface of visibleSurfaces) {
             const renderData = this.waterSystem.getWaterRenderData(surface.id);
-            if (!renderData) continue;
+            if (!renderData) {
+                console.warn('WaterRenderer: No render data for surface', surface.id);
+                continue;
+            }
 
             let meshData = this.meshCache.get(surface.id);
             if (!meshData) {
+                console.log('WaterRenderer: Creating mesh for water surface', surface.id);
                 meshData = this.createWaterMesh(surface, renderData);
-                if (!meshData) continue;
+                if (!meshData) {
+                    console.error('WaterRenderer: Failed to create mesh for surface', surface.id);
+                    continue;
+                }
             }
 
             // Update global uniforms

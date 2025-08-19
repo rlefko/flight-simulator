@@ -502,9 +502,23 @@ export class VegetationRenderer {
         // Get or create shader module
         const shaderModule = this.shaderManager.getShader('vegetation');
         if (!shaderModule) {
-            console.error('Vegetation shader not found');
+            console.error('VegetationRenderer: Vegetation shader not found in ShaderManager');
+            console.log(
+                'VegetationRenderer: Available shaders:',
+                this.shaderManager.getAvailableShaders()
+            );
             return;
         }
+
+        console.log(
+            'VegetationRenderer: Creating pipeline for',
+            batch.type,
+            'species',
+            batch.speciesId,
+            'with',
+            batch.instances.length,
+            'instances'
+        );
 
         // Vertex buffer layout
         const vertexBufferLayout: GPUVertexBufferLayout = {
@@ -552,6 +566,9 @@ export class VegetationRenderer {
                 format: 'depth24plus', // Match main render pass depth format
                 depthWriteEnabled: true,
                 depthCompare: 'less',
+            },
+            multisample: {
+                count: 4, // Match MSAA sample count
             },
             label: `vegetation-pipeline-${batch.type}-${batch.speciesId}`,
         });
@@ -619,10 +636,36 @@ export class VegetationRenderer {
         this.stats.drawCalls = 0;
         this.stats.triangles = 0;
 
-        for (const batch of this.batches.values()) {
-            if (batch.instances.length === 0 || !batch.pipeline || !batch.bindGroup) {
+        if (this.batches.size === 0) {
+            console.warn('VegetationRenderer: No batches to render');
+            return;
+        }
+
+        console.log('VegetationRenderer: Rendering', this.batches.size, 'batches');
+
+        for (const [batchId, batch] of this.batches) {
+            if (batch.instances.length === 0) {
+                console.warn('VegetationRenderer: Batch', batchId, 'has no instances');
                 continue;
             }
+
+            if (!batch.pipeline) {
+                console.error('VegetationRenderer: Batch', batchId, 'has no pipeline');
+                continue;
+            }
+
+            if (!batch.bindGroup) {
+                console.error('VegetationRenderer: Batch', batchId, 'has no bind group');
+                continue;
+            }
+
+            console.log(
+                'VegetationRenderer: Rendering batch',
+                batchId,
+                'with',
+                batch.instances.length,
+                'instances'
+            );
 
             // Update instance data if needed
             if (batch.needsUpdate) {

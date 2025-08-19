@@ -85,6 +85,7 @@ export class PhotorealisticHeightmapGenerator {
         // Calculate derived data
         this.calculateNormals(heightmap, normals, size, step);
         this.calculateSlopes(heightmap, slopes, size, step);
+        this.generateWaterBodies(heightmap, waterMask, size);
         this.assignBiomes(heightmap, slopes, materials, waterMask, size);
 
         return {
@@ -343,6 +344,180 @@ export class PhotorealisticHeightmapGenerator {
 
                 slopes[index] = Math.sqrt(dx * dx + dz * dz);
             }
+        }
+    }
+
+    /**
+     * Generate water bodies (lakes and rivers) based on terrain
+     */
+    private generateWaterBodies(
+        heightmap: Float32Array,
+        waterMask: Uint8Array,
+        size: number
+    ): void {
+        // Create a temporary array to store local minima (potential lake centers)
+        const localMinima: Array<{ x: number; z: number; elevation: number }> = [];
+
+        // Find local minima that could be lakes
+        for (let i = 2; i < size - 2; i++) {
+            for (let j = 2; j < size - 2; j++) {
+                const index = i * size + j;
+                const elevation = heightmap[index];
+
+                // Skip areas that are too high or already below sea level
+                if (elevation < -2 || elevation > 500) continue;
+
+                // Check if this is a local minimum
+                let isMinimum = true;
+                let minNeighborElevation = Infinity;
+
+                for (let di = -2; di <= 2 && isMinimum; di++) {
+                    for (let dj = -2; dj <= 2 && isMinimum; dj++) {
+                        if (di === 0 && dj === 0) continue;
+
+                        const ni = i + di;
+                        const nj = j + dj;
+                        const nIndex = ni * size + nj;
+                        const nElevation = heightmap[nIndex];
+
+                        minNeighborElevation = Math.min(minNeighborElevation, nElevation);
+
+                        // Must be lower than neighbors to be a minimum
+                        if (nElevation <= elevation) {
+                            isMinimum = false;
+                        }
+                    }
+                }
+
+                // If it's a minimum and the depression is significant enough
+                if (isMinimum && minNeighborElevation - elevation > 5) {
+                    localMinima.push({ x: j, z: i, elevation });
+                }
+            }
+        }
+
+        // Generate lakes at local minima
+        for (const minimum of localMinima) {
+            const lakeRadius = 3 + Math.random() * 8; // Random lake size 3-11 cells
+            const waterLevel = minimum.elevation + 2; // Water slightly above minimum
+
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size; j++) {
+                    const dx = j - minimum.x;
+                    const dz = i - minimum.z;
+                    const distance = Math.sqrt(dx * dx + dz * dz);
+
+                    if (distance <= lakeRadius) {
+                        const index = i * size + j;
+                        const elevation = heightmap[index];
+
+                        // Only create water if the terrain is below the water level
+                        if (elevation <= waterLevel) {
+                            waterMask[index] = 255;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate some rivers by connecting low areas
+        this.generateSimpleRivers(heightmap, waterMask, size);
+    }
+
+    /**
+     * Generate simple rivers connecting low areas
+     */
+    private generateSimpleRivers(
+        heightmap: Float32Array,
+        waterMask: Uint8Array,
+        size: number
+    ): void {
+        // Find potential river start points (high areas)
+        const riverSources: Array<{ x: number; z: number }> = [];
+
+        for (let i = 10; i < size - 10; i += 20) {
+            for (let j = 10; j < size - 10; j += 20) {
+                const index = i * size + j;
+                const elevation = heightmap[index];
+
+                // High elevation areas can be river sources
+                if (elevation > 100 && elevation < 800 && Math.random() < 0.3) {
+                    riverSources.push({ x: j, z: i });
+                }
+            }
+        }
+
+        // Generate rivers from sources
+        for (const source of riverSources) {
+            this.generateRiverPath(source.x, source.z, heightmap, waterMask, size);
+        }
+    }
+
+    /**
+     * Generate a single river path using flow direction
+     */
+    private generateRiverPath(
+        startX: number,
+        startZ: number,
+        heightmap: Float32Array,
+        waterMask: Uint8Array,
+        size: number
+    ): void {
+        let currentX = startX;
+        let currentZ = startZ;
+        const maxLength = 100; // Maximum river length
+
+        for (let step = 0; step < maxLength; step++) {
+            const currentIndex = Math.floor(currentZ) * size + Math.floor(currentX);
+
+            // Stop if we're out of bounds
+            if (currentX < 1 || currentX >= size - 1 || currentZ < 1 || currentZ >= size - 1) break;
+
+            const currentElevation = heightmap[currentIndex];
+
+            // Stop if we hit existing water or reach sea level
+            if (waterMask[currentIndex] > 0 || currentElevation < 1) break;
+
+            // Mark current position as water (river)
+            waterMask[currentIndex] = 255;
+
+            // Find steepest descent direction
+            let bestDirection = { x: 0, z: 0 };
+            let steepestSlope = 0;
+
+            const directions = [
+                { x: -1, z: 0 },
+                { x: 1, z: 0 },
+                { x: 0, z: -1 },
+                { x: 0, z: 1 },
+                { x: -1, z: -1 },
+                { x: 1, z: -1 },
+                { x: -1, z: 1 },
+                { x: 1, z: 1 },
+            ];
+
+            for (const dir of directions) {
+                const newX = currentX + dir.x;
+                const newZ = currentZ + dir.z;
+
+                if (newX < 0 || newX >= size || newZ < 0 || newZ >= size) continue;
+
+                const newIndex = Math.floor(newZ) * size + Math.floor(newX);
+                const newElevation = heightmap[newIndex];
+                const slope = currentElevation - newElevation;
+
+                if (slope > steepestSlope) {
+                    steepestSlope = slope;
+                    bestDirection = dir;
+                }
+            }
+
+            // If no downward slope found, stop
+            if (steepestSlope <= 0) break;
+
+            // Move in the steepest direction
+            currentX += bestDirection.x;
+            currentZ += bestDirection.z;
         }
     }
 

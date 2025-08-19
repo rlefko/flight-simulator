@@ -327,8 +327,11 @@ export class VegetationSystem {
         };
 
         if (!tile.terrainData) {
+            console.warn('VegetationSystem: No terrain data for tile', tile.id);
             return placement;
         }
+
+        console.log('VegetationSystem: Generating vegetation for tile', tile.id);
 
         const { heightmap, materials, slopes, waterMask } = tile.terrainData;
         const tileSize = tile.size;
@@ -364,6 +367,19 @@ export class VegetationSystem {
 
         // Group instances into batches for efficient rendering
         this.createBatches(placement);
+
+        console.log(
+            'VegetationSystem: Generated',
+            placement.instances.length,
+            'total vegetation instances for tile',
+            tile.id
+        );
+        console.log(
+            'VegetationSystem: Tree batches:',
+            placement.treeBatches.size,
+            'Grass batches:',
+            placement.grassBatches.size
+        );
 
         this.placements.set(tile.id, placement);
         return placement;
