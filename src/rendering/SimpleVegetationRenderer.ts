@@ -22,7 +22,7 @@ export class SimpleVegetationRenderer {
     } | null = null;
     private instanceBuffer: GPUBuffer | null = null;
     private instanceCount: number = 0;
-    private maxInstances: number = 10000;
+    private maxInstances: number = 20000; // Increased to handle more trees
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -184,44 +184,25 @@ export class SimpleVegetationRenderer {
                     input.normal.x * sinRot + input.normal.z * cosRot
                 ));
                 
-                // Enhanced tree coloring with more realistic variation
+                // Simple tree coloring
                 let heightFactor = clamp(input.position.y / 50.0, 0.0, 1.0);
                 
-                // Create darker green at bottom, lighter at top
-                let darkGreen = vec3<f32>(0.1, 0.4, 0.1);   // Dark forest green
-                let lightGreen = vec3<f32>(0.3, 0.7, 0.2);  // Brighter green
-                
-                // Mix based on height for natural gradient
-                output.color = mix(darkGreen, lightGreen, heightFactor);
-                
-                // Add some brown for trunk-like base
-                if (input.position.y < 5.0) {
-                    let brownColor = vec3<f32>(0.4, 0.25, 0.1); // Tree trunk brown
-                    let blendFactor = (5.0 - input.position.y) / 5.0;
-                    output.color = mix(output.color, brownColor, blendFactor);
-                }
+                // Create simple green gradient
+                let baseColor = vec3<f32>(0.2, 0.5, 0.1);
+                let topColor = vec3<f32>(0.3, 0.7, 0.2);
+                output.color = mix(baseColor, topColor, heightFactor);
                 
                 return output;
             }
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Enhanced lighting with better sun direction
+                // Simple lighting
                 let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.5));
-                let ndotl = max(dot(input.normal, lightDir), 0.4); // Higher ambient
+                let ndotl = max(dot(input.normal, lightDir), 0.3);
                 
-                // Add subtle rim lighting effect
-                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
-                let rimLight = 1.0 - max(dot(viewDir, input.normal), 0.0);
-                rimLight = pow(rimLight, 2.0) * 0.3;
-                
-                // Apply lighting with rim light
-                var finalColor = input.color * ndotl;
-                finalColor += vec3<f32>(0.4, 0.6, 0.2) * rimLight; // Green rim light
-                
-                // Add slight wind animation effect based on position
-                let windEffect = sin(uniforms.time + input.worldPos.x * 0.1) * 0.02;
-                finalColor += vec3<f32>(windEffect, windEffect * 0.5, 0.0);
+                // Apply lighting
+                let finalColor = input.color * ndotl;
                 
                 return vec4<f32>(finalColor, 1.0);
             }
@@ -306,10 +287,19 @@ export class SimpleVegetationRenderer {
     public updateInstances(trees: TreeInstance[]): void {
         if (!this.instanceBuffer) return;
 
-        const instanceData = new Float32Array(trees.length * 8); // 32 bytes / 4 = 8 floats
+        // Limit instances to prevent buffer overflow
+        const instancesToRender = Math.min(trees.length, this.maxInstances);
+        if (trees.length > this.maxInstances) {
+            console.warn(
+                `SimpleVegetationRenderer: Limiting trees from ${trees.length} to ${this.maxInstances}`
+            );
+        }
+
+        const instanceData = new Float32Array(instancesToRender * 8); // 32 bytes / 4 = 8 floats
         let offset = 0;
 
-        for (const tree of trees) {
+        for (let i = 0; i < instancesToRender; i++) {
+            const tree = trees[i];
             // Position
             instanceData[offset++] = tree.position.x;
             instanceData[offset++] = tree.position.y;
@@ -323,9 +313,9 @@ export class SimpleVegetationRenderer {
         }
 
         this.device.queue.writeBuffer(this.instanceBuffer, 0, instanceData);
-        this.instanceCount = trees.length;
+        this.instanceCount = instancesToRender;
 
-        console.log(`SimpleVegetationRenderer: Updated ${trees.length} tree instances`);
+        console.log(`SimpleVegetationRenderer: Updated ${instancesToRender} tree instances`);
     }
 
     /**

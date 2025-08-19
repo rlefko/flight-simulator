@@ -290,8 +290,9 @@ export class WebGPURenderer {
             this.simpleVegetationRenderer = new SimpleVegetationRenderer(this.device);
             await this.simpleVegetationRenderer.initialize();
 
-            this.simpleGrassRenderer = new SimpleGrassRenderer(this.device);
-            await this.simpleGrassRenderer.initialize();
+            // Temporarily disable grass renderer to avoid pipeline errors
+            // this.simpleGrassRenderer = new SimpleGrassRenderer(this.device);
+            // await this.simpleGrassRenderer.initialize();
 
             console.log('WebGPURenderer: Using simplified renderers for stability');
         } else {
@@ -779,7 +780,8 @@ export class WebGPURenderer {
                         }
 
                         // Render grass for ground cover
-                        if (this.useSimpleRenderers && this.simpleGrassRenderer) {
+                        // Temporarily disable grass rendering to avoid pipeline errors
+                        if (false && this.useSimpleRenderers && this.simpleGrassRenderer) {
                             const grassStartTime = performance.now();
 
                             // Generate grass instances if not already done

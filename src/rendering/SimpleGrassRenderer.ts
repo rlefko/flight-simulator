@@ -183,13 +183,9 @@ export class SimpleGrassRenderer {
                     input.position.x * sinRot + input.position.z * cosRot
                 );
                 
-                // Apply wind animation to top of grass blades
-                let windStrength = 0.3;
-                let windSpeed = 2.0;
-                let windOffset = sin(uniforms.time * windSpeed + input.instancePosition.x * 0.1 + input.instancePosition.z * 0.1) * windStrength;
-                
-                // Only bend the top part of the grass
-                let heightFactor = clamp(input.position.y / 3.0, 0.0, 1.0);
+                // Simple wind animation
+                let windOffset = sin(uniforms.time * 2.0 + input.instancePosition.x * 0.1) * 0.2;
+                let heightFactor = input.position.y / 3.0;
                 rotatedPos.x += windOffset * heightFactor;
                 
                 // Apply scale and translation
@@ -199,46 +195,24 @@ export class SimpleGrassRenderer {
                 output.position = uniforms.mvpMatrix * vec4<f32>(worldPos, 1.0);
                 output.worldPos = worldPos;
                 
-                // Rotate normal
-                output.normal = normalize(vec3<f32>(
-                    input.normal.x * cosRot - input.normal.z * sinRot,
-                    input.normal.y,
-                    input.normal.x * sinRot + input.normal.z * cosRot
-                ));
+                // Simple normal
+                output.normal = vec3<f32>(0.0, 1.0, 0.0);
                 
-                // Grass color variation
-                let baseGreen = vec3<f32>(0.2, 0.6, 0.1);
-                let tipGreen = vec3<f32>(0.4, 0.8, 0.2);
-                
-                // Mix colors based on height
-                let colorHeightFactor = clamp(input.position.y / 3.0, 0.0, 1.0);
-                output.color = mix(baseGreen, tipGreen, colorHeightFactor);
-                
-                // Add some random variation
-                let variation = sin(input.instancePosition.x * 12.34 + input.instancePosition.z * 56.78) * 0.1;
-                output.color += vec3<f32>(variation * 0.1, variation * 0.2, variation * 0.05);
-                
-                // Fade out grass at the top for natural look
-                output.alpha = mix(1.0, 0.3, colorHeightFactor);
+                // Simple grass color
+                output.color = vec3<f32>(0.3, 0.7, 0.2);
+                output.alpha = 0.9;
                 
                 return output;
             }
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Enhanced lighting
+                // Simple lighting
                 let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.5));
-                let ndotl = max(dot(input.normal, lightDir), 0.6); // High ambient for grass
-                
-                // Add subsurface scattering effect
-                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
-                let backLight = max(0.0, dot(-viewDir, lightDir)) * 0.3;
+                let ndotl = max(dot(input.normal, lightDir), 0.5);
                 
                 // Apply lighting
-                var finalColor = input.color * ndotl + input.color * backLight;
-                
-                // Add slight brightness variation
-                finalColor *= 1.1;
+                let finalColor = input.color * ndotl;
                 
                 return vec4<f32>(finalColor, input.alpha);
             }
