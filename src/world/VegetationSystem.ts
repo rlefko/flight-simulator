@@ -386,7 +386,7 @@ export class VegetationSystem {
     }
 
     /**
-     * Generate tree instances for the tile
+     * Generate tree instances for the tile using the VegetationGenerator
      */
     private generateTrees(
         tile: TerrainTile,
@@ -401,69 +401,83 @@ export class VegetationSystem {
         const tileWorldX = tile.x * tile.size;
         const tileWorldZ = tile.z * tile.size;
 
-        for (const [speciesId, species] of this.treeSpecies) {
-            // Check if this species can grow in any biomes present in this tile
-            const relevantBiomes = new Set();
-            for (let i = 0; i < materials.length; i++) {
-                if (species.biomes.includes(materials[i])) {
-                    relevantBiomes.add(materials[i]);
-                }
-            }
+        console.log(
+            'VegetationSystem: Generating trees for tile',
+            tile.id,
+            'at world coords',
+            tileWorldX,
+            tileWorldZ
+        );
+        console.log(
+            'VegetationSystem: Terrain data - heightmap length:',
+            heightmap.length,
+            'materials length:',
+            materials.length
+        );
 
-            if (relevantBiomes.size === 0) continue;
+        // Use the sophisticated VegetationGenerator for tree placement
+        const vegetationInstances = this.vegetationGenerator.generateVegetation(
+            tile.terrainData!,
+            tile.size,
+            tileWorldX,
+            tileWorldZ
+        );
 
-            // Calculate approximate number of trees for this species
-            const tileAreaKm2 = (tile.size / 1000) ** 2;
-            const baseTreeCount = species.density * tileAreaKm2;
-            const treeCount = Math.max(2, Math.round(baseTreeCount * (0.8 + this.random() * 0.4)));
+        console.log(
+            'VegetationSystem: VegetationGenerator produced',
+            vegetationInstances.length,
+            'instances'
+        );
 
-            // Use Poisson disk sampling for natural distribution
-            const minDistance = Math.sqrt(1000000 / species.density) * 0.5; // Approximate spacing
-            const sampler = new PoissonDiskSampler(tile.size, tile.size, minDistance);
-            const samples = sampler.generateSamples(treeCount * 2); // Generate extra samples to filter
+        // Convert VegetationGenerator output to VegetationSystem format
+        for (const instance of vegetationInstances) {
+            // Determine if this is a tree or grass
+            const isGrass = this.isGrassType(instance.objectId as any);
 
-            let placedTrees = 0;
-            for (const sample of samples) {
-                if (placedTrees >= treeCount) break;
+            if (isGrass) {
+                // Map grass type to our grass ID
+                const grassId = this.mapGrassTypeToId(instance.objectId as any);
+                if (grassId === -1) continue;
 
-                const worldX = tileWorldX + sample.x;
-                const worldZ = tileWorldZ + sample.z;
+                const vegetationInstance: VegetationInstance = {
+                    id: `grass_${grassId}_${Math.round(instance.position.x)}_${Math.round(instance.position.z)}`,
+                    type: 'grass',
+                    speciesId: grassId,
+                    position: instance.position,
+                    rotation: instance.rotation.y,
+                    scale: instance.scale,
+                    distance: 0,
+                    visible: true,
+                    lodLevel: 0,
+                };
 
-                // Get precise terrain data at this exact position using bilinear interpolation
-                const terrainData = this.sampleTerrainData(
-                    sample.x,
-                    sample.z,
-                    heightmap,
-                    materials,
-                    slopes,
-                    waterMask,
-                    step,
-                    resolution
-                );
+                placement.instances.push(vegetationInstance);
+            } else {
+                // Map VegetationType to our tree species ID
+                const speciesId = this.mapVegetationTypeToSpeciesId(instance.objectId as any);
+                if (speciesId === -1) continue;
 
-                if (!terrainData) continue;
+                const vegetationInstance: VegetationInstance = {
+                    id: `tree_${speciesId}_${Math.round(instance.position.x)}_${Math.round(instance.position.z)}`,
+                    type: 'tree',
+                    speciesId,
+                    position: instance.position,
+                    rotation: instance.rotation.y,
+                    scale: instance.scale,
+                    distance: 0,
+                    visible: true,
+                    lodLevel: 0,
+                };
 
-                // Check if this location is suitable for this tree species
-                if (this.isValidTreeLocation(species, terrainData)) {
-                    // Use forest density for natural clustering - reduced threshold for more trees
-                    const forestDensity = this.getForestDensity(worldX, worldZ, terrainData.biome);
-                    const placementRandom = this.seededRandom(worldX, worldZ, this.seed + 1000);
-
-                    // Increased chance of tree placement
-                    if (placementRandom > forestDensity * 0.7) continue;
-
-                    const instance = this.createTreeInstance(
-                        speciesId,
-                        species,
-                        worldX,
-                        terrainData.elevation, // Use the precise interpolated terrain elevation
-                        worldZ
-                    );
-                    placement.instances.push(instance);
-                    placedTrees++;
-                }
+                placement.instances.push(vegetationInstance);
             }
         }
+
+        console.log(
+            'VegetationSystem: Successfully converted',
+            placement.instances.length,
+            'tree instances'
+        );
     }
 
     /**
@@ -872,6 +886,49 @@ export class VegetationSystem {
     private seededRandom(x: number, z: number, seed: number): number {
         const n = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
         return n - Math.floor(n);
+    }
+
+    /**
+     * Check if a vegetation type is grass
+     */
+    private isGrassType(vegetationType: string): boolean {
+        return vegetationType === 'grass_patch' || vegetationType === 'fern';
+    }
+
+    /**
+     * Map VegetationType from VegetationGenerator to our species IDs
+     */
+    private mapVegetationTypeToSpeciesId(vegetationType: string): number {
+        switch (vegetationType) {
+            case 'oak_tree':
+                return 0; // Oak
+            case 'pine_tree':
+                return 1; // Pine
+            case 'birch_tree':
+                return 3; // Birch
+            case 'palm_tree':
+                return 2; // Palm
+            case 'cactus':
+                return 4; // Cactus
+            default:
+                console.warn('Unknown tree vegetation type:', vegetationType);
+                return -1;
+        }
+    }
+
+    /**
+     * Map grass VegetationType to our grass IDs
+     */
+    private mapGrassTypeToId(vegetationType: string): number {
+        switch (vegetationType) {
+            case 'grass_patch':
+                return 0; // Use existing temperate grass
+            case 'fern':
+                return 0; // Map to temperate grass for now
+            default:
+                console.warn('Unknown grass vegetation type:', vegetationType);
+                return -1;
+        }
     }
 
     /**

@@ -32,16 +32,29 @@ interface TreeConfig {
 }
 
 /**
+ * Grass configuration for different biomes
+ */
+interface GrassConfig {
+    type: VegetationType;
+    density: number; // Patches per 100m²
+    patchSize: number; // Size of grass patches in meters
+    height: number;
+    color: [number, number, number];
+}
+
+/**
  * Generates realistic vegetation placement for terrain tiles
  */
 export class VegetationGenerator {
     private seed: number;
     private treeConfigs: Map<number, TreeConfig[]> = new Map();
+    private grassConfigs: Map<number, GrassConfig[]> = new Map();
     private permutation: Uint8Array;
 
     constructor(seed: number = 12345) {
         this.seed = seed;
         this.initializeTreeConfigs();
+        this.initializeGrassConfigs();
         this.initializePerlinNoise();
     }
 
@@ -75,7 +88,7 @@ export class VegetationGenerator {
      * Initialize tree configurations for each biome
      */
     private initializeTreeConfigs(): void {
-        // Forest biome trees
+        // Forest biome trees - increased density for more visible forests
         this.treeConfigs.set(3, [
             {
                 type: VegetationType.OAK_TREE,
@@ -83,8 +96,8 @@ export class VegetationGenerator {
                 maxHeight: 25,
                 minRadius: 3,
                 maxRadius: 6,
-                density: 150,
-                clusterProbability: 0.7,
+                density: 300, // Doubled density
+                clusterProbability: 0.8,
                 color: [0.2, 0.4, 0.1],
             },
             {
@@ -93,13 +106,13 @@ export class VegetationGenerator {
                 maxHeight: 20,
                 minRadius: 2,
                 maxRadius: 4,
-                density: 100,
-                clusterProbability: 0.5,
+                density: 200, // Doubled density
+                clusterProbability: 0.6,
                 color: [0.3, 0.5, 0.2],
             },
         ]);
 
-        // Grassland biome trees (sparse)
+        // Grassland biome trees (sparse but visible)
         this.treeConfigs.set(2, [
             {
                 type: VegetationType.OAK_TREE,
@@ -107,8 +120,8 @@ export class VegetationGenerator {
                 maxHeight: 18,
                 minRadius: 3,
                 maxRadius: 5,
-                density: 15,
-                clusterProbability: 0.3,
+                density: 30, // Doubled density
+                clusterProbability: 0.4,
                 color: [0.2, 0.4, 0.1],
             },
         ]);
@@ -121,8 +134,8 @@ export class VegetationGenerator {
                 maxHeight: 30,
                 minRadius: 2,
                 maxRadius: 4,
-                density: 80,
-                clusterProbability: 0.6,
+                density: 160, // Doubled density
+                clusterProbability: 0.7,
                 color: [0.1, 0.3, 0.1],
             },
         ]);
@@ -135,8 +148,8 @@ export class VegetationGenerator {
                 maxHeight: 15,
                 minRadius: 1,
                 maxRadius: 2,
-                density: 12,
-                clusterProbability: 0.4,
+                density: 25, // Doubled density
+                clusterProbability: 0.5,
                 color: [0.3, 0.4, 0.2],
             },
         ]);
@@ -149,9 +162,87 @@ export class VegetationGenerator {
                 maxHeight: 5,
                 minRadius: 0.5,
                 maxRadius: 1,
-                density: 8,
-                clusterProbability: 0.1,
+                density: 16, // Doubled density
+                clusterProbability: 0.2,
                 color: [0.3, 0.5, 0.2],
+            },
+        ]);
+    }
+
+    /**
+     * Initialize grass configurations for each biome
+     */
+    private initializeGrassConfigs(): void {
+        // Forest biome grass
+        this.grassConfigs.set(3, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 500, // Dense grass coverage
+                patchSize: 2.0,
+                height: 0.4,
+                color: [0.3, 0.6, 0.2],
+            },
+            {
+                type: VegetationType.FERN,
+                density: 150,
+                patchSize: 1.5,
+                height: 0.6,
+                color: [0.2, 0.5, 0.1],
+            },
+        ]);
+
+        // Grassland biome grass
+        this.grassConfigs.set(2, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 800, // Very dense in grasslands
+                patchSize: 3.0,
+                height: 0.3,
+                color: [0.4, 0.7, 0.2],
+            },
+        ]);
+
+        // Mountain biome grass
+        this.grassConfigs.set(5, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 200, // Sparse mountain grass
+                patchSize: 1.0,
+                height: 0.2,
+                color: [0.5, 0.6, 0.3],
+            },
+        ]);
+
+        // Beach biome grass
+        this.grassConfigs.set(1, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 100, // Beach grass
+                patchSize: 1.5,
+                height: 0.5,
+                color: [0.6, 0.7, 0.4],
+            },
+        ]);
+
+        // Wetland biome grass
+        this.grassConfigs.set(8, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 600, // Dense wetland vegetation
+                patchSize: 2.5,
+                height: 0.7,
+                color: [0.3, 0.6, 0.3],
+            },
+        ]);
+
+        // Tundra biome grass
+        this.grassConfigs.set(7, [
+            {
+                type: VegetationType.GRASS_PATCH,
+                density: 300, // Moderate tundra vegetation
+                patchSize: 1.0,
+                height: 0.15,
+                color: [0.5, 0.6, 0.4],
             },
         ]);
     }
@@ -178,9 +269,13 @@ export class VegetationGenerator {
             for (const config of configs) {
                 // Calculate approximate tree count based on density and tile area
                 const tileAreaKm2 = (tileSize / 1000) ** 2;
-                const targetTreeCount = Math.round(config.density * tileAreaKm2 * 0.05); // Increased density
+                const targetTreeCount = Math.round(config.density * tileAreaKm2 * 0.15); // Significantly increased multiplier
 
                 if (targetTreeCount === 0) continue;
+
+                console.log(
+                    `VegetationGenerator: Generating ${targetTreeCount} trees of type ${config.type} for biome ${biomeId} in ${tileAreaKm2.toFixed(2)}km² tile`
+                );
 
                 // Use Poisson disk sampling for natural distribution
                 const minDistance = Math.sqrt(1000000 / config.density) * 0.5; // Minimum spacing between trees
@@ -215,7 +310,7 @@ export class VegetationGenerator {
                     // Check if this location is suitable for this tree type
                     if (!this.isValidTreeLocation(config, terrainSample, biomeId)) continue;
 
-                    // Check forest density using noise for natural clustering
+                    // Check forest density using noise for natural clustering - increased placement chance
                     const forestDensity = this.getForestDensity(worldPosX, worldPosZ, biomeId);
                     const placementRandom = this.seededRandom(
                         worldPosX,
@@ -223,7 +318,8 @@ export class VegetationGenerator {
                         this.seed + 1000
                     );
 
-                    if (placementRandom > forestDensity) continue;
+                    // Greatly increased chance of tree placement - threshold reduced
+                    if (placementRandom > forestDensity * 0.3) continue;
 
                     // Create tree instance with proper height sampling
                     const instance = this.createTreeInstance(
@@ -251,6 +347,80 @@ export class VegetationGenerator {
                         );
                         instances.push(...clusterInstances);
                     }
+                }
+            }
+        }
+
+        // Generate grass
+        for (const biomeId of biomesPresent) {
+            const grassConfigs = this.grassConfigs.get(biomeId);
+            if (!grassConfigs || grassConfigs.length === 0) continue;
+
+            for (const config of grassConfigs) {
+                // Calculate grass patch count based on density and tile area
+                const tileAreaKm2 = (tileSize / 1000) ** 2;
+                const targetGrassCount = Math.round(config.density * tileAreaKm2 * 0.05); // Moderate density
+
+                if (targetGrassCount === 0) continue;
+
+                console.log(
+                    `VegetationGenerator: Generating ${targetGrassCount} grass patches of type ${config.type} for biome ${biomeId}`
+                );
+
+                // Use larger spacing for grass patches
+                const minDistance = Math.sqrt(1000000 / config.density) * 0.8;
+                const samples = this.generatePoissonDiskSamples(
+                    tileSize,
+                    tileSize,
+                    minDistance,
+                    targetGrassCount * 1.5,
+                    worldX,
+                    worldZ,
+                    this.seed + biomeId * 2000 + 1000 // Different seed for grass
+                );
+
+                let placedGrass = 0;
+                for (const sample of samples) {
+                    if (placedGrass >= targetGrassCount) break;
+
+                    const worldPosX = worldX + sample.x;
+                    const worldPosZ = worldZ + sample.z;
+
+                    // Get precise terrain data at this exact position
+                    const terrainSample = this.sampleTerrainAtPosition(
+                        sample.x,
+                        sample.z,
+                        terrainData,
+                        tileSize,
+                        resolution
+                    );
+
+                    if (!terrainSample) continue;
+
+                    // Check if this location is suitable for grass
+                    if (!this.isValidGrassLocation(config, terrainSample, biomeId)) continue;
+
+                    // Grass has higher placement probability than trees
+                    const placementRandom = this.seededRandom(
+                        worldPosX,
+                        worldPosZ,
+                        this.seed + 2000
+                    );
+
+                    // High chance of grass placement
+                    if (placementRandom > 0.8) continue;
+
+                    // Create grass instance
+                    const instance = this.createGrassInstance(
+                        config,
+                        worldPosX,
+                        terrainSample.elevation,
+                        worldPosZ,
+                        worldPosX + worldPosZ + 1000 // Different seed for grass properties
+                    );
+
+                    instances.push(instance);
+                    placedGrass++;
                 }
             }
         }
@@ -549,6 +719,70 @@ export class VegetationGenerator {
     }
 
     /**
+     * Check if location is valid for grass placement
+     */
+    private isValidGrassLocation(
+        config: GrassConfig,
+        terrainSample: any,
+        biomeId: number
+    ): boolean {
+        // Check water areas - some grass types can grow near water
+        if (terrainSample.isWater && biomeId !== 8) return false; // Only wetland grass near water
+
+        // Check if this grass type can grow in this biome
+        const allowedBiomes = {
+            [VegetationType.GRASS_PATCH]: [1, 2, 3, 5, 7, 8], // Most biomes
+            [VegetationType.FERN]: [3, 8], // Forest and wetland only
+        };
+
+        const configBiomes = allowedBiomes[config.type] || [];
+        if (!configBiomes.includes(biomeId)) return false;
+
+        // Check elevation (grass grows at most elevations)
+        if (terrainSample.elevation < -5) return false;
+
+        // Check slope (grass can grow on moderate slopes)
+        if (terrainSample.slope > 0.8) return false;
+
+        return true;
+    }
+
+    /**
+     * Create a grass instance with deterministic properties
+     */
+    private createGrassInstance(
+        config: GrassConfig,
+        worldX: number,
+        elevation: number,
+        worldZ: number,
+        seed: number
+    ) {
+        // Use deterministic random based on position and seed
+        const random1 = this.seededRandom(worldX, worldZ, seed);
+        const random2 = this.seededRandom(worldX, worldZ, seed + 1);
+        const random3 = this.seededRandom(worldX, worldZ, seed + 2);
+
+        // Calculate grass properties
+        const scaleVariation = 0.7 + random1 * 0.6; // 70%-130% scale variation
+        const rotation = random3 * Math.PI * 2;
+
+        return {
+            objectId: config.type,
+            position: new Vector3(worldX, elevation, worldZ),
+            rotation: new Vector3(0, rotation, 0),
+            scale: new Vector3(
+                scaleVariation * config.patchSize,
+                scaleVariation * config.height,
+                scaleVariation * config.patchSize
+            ),
+            distance: 0,
+            lodLevel: 0,
+            visible: true,
+            lastUpdate: Date.now(),
+        };
+    }
+
+    /**
      * Create a tree instance with deterministic properties
      */
     private createTreeInstance(
@@ -670,48 +904,50 @@ export class VegetationGenerator {
         // Apply biome-specific clustering patterns
         switch (biomeId) {
             case 3: // Forest biome - dense with clearings
-                density = Math.max(0.5, density); // Minimum 50% forest coverage
+                density = Math.max(0.7, density); // Increased minimum forest coverage
                 // Add natural clearings using additional noise
                 const clearingNoise = this.fractalNoise(worldX * 0.001, worldZ * 0.001, 2);
-                if (clearingNoise < -0.4) {
-                    density *= 0.2; // Create natural clearings
+                if (clearingNoise < -0.6) {
+                    density *= 0.3; // Create natural clearings, but less aggressive
                 }
                 break;
 
             case 2: // Grassland - scattered trees in groups
-                density *= 0.25;
+                density *= 0.4; // Increased from 0.25
                 // Create tree groves using clustered noise
                 const groveNoise = this.fractalNoise(worldX * 0.002, worldZ * 0.002, 3);
-                if (groveNoise > 0.3) {
-                    density *= 3.0; // Boost density in grove areas
+                if (groveNoise > 0.2) {
+                    // Lowered threshold
+                    density *= 4.0; // Boost density in grove areas
                 }
                 break;
 
             case 5: // Mountain - elevation and slope dependent
-                density *= 0.6;
+                density *= 0.8; // Increased from 0.6
                 // Simulate treeline effects (less dense at higher altitudes)
                 const elevationFactor = Math.max(0, 1.0 - worldZ * 0.0001); // Rough elevation proxy
                 density *= elevationFactor;
                 break;
 
             case 4: // Desert - very sparse, oasis-like clustering
-                density *= 0.03;
+                density *= 0.06; // Doubled from 0.03
                 // Create rare oasis-like clusters
                 const oasisNoise = this.fractalNoise(worldX * 0.0008, worldZ * 0.0008, 2);
-                if (oasisNoise > 0.6) {
-                    density *= 5.0; // Dense vegetation near water sources
+                if (oasisNoise > 0.4) {
+                    // Lowered threshold
+                    density *= 6.0; // Dense vegetation near water sources
                 }
                 break;
 
             case 1: // Beach - sparse coastal vegetation
-                density *= 0.15;
+                density *= 0.25; // Increased from 0.15
                 // Denser vegetation away from water
                 const coastalNoise = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 2);
                 density *= 0.5 + coastalNoise * 0.5;
                 break;
 
             default:
-                density *= 0.1; // Default sparse coverage for unknown biomes
+                density *= 0.2; // Doubled default coverage
         }
 
         // Add some randomness to prevent overly regular patterns
