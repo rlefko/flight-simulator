@@ -615,10 +615,10 @@ export class WaterSystem {
                 const x = minX + j * stepX;
                 const z = minZ + i * stepZ;
 
-                // Use a fixed water level for now, with small wave variations
+                // Use a completely fixed water level for stability
                 const baseWaterLevel = WATER_CONFIG.SEA_LEVEL;
-                const waveOffset = this.calculateSimpleWaveHeight(x, z, this.physics.currentTime);
-                const y = baseWaterLevel + waveOffset;
+                const waveOffset = 0; // Disabled wave offset for stability
+                const y = baseWaterLevel; // Flat water surface
 
                 vertices.push(x, y, z);
 
@@ -687,6 +687,11 @@ export class WaterSystem {
      * Calculate simple wave height for mesh generation
      */
     private calculateSimpleWaveHeight(x: number, z: number, time: number): number {
+        // DISABLED: Return 0 for completely flat water to ensure stability
+        return 0;
+
+        // Original wave calculation (currently disabled for stability)
+        /*
         let height = 0;
 
         // Use the existing wave components to calculate height
@@ -697,6 +702,7 @@ export class WaterSystem {
         }
 
         return height * 0.5; // Scale down wave amplitude for visibility
+        */
     }
 
     private getTerrainHeightAt(x: number, z: number): number {

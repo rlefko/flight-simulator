@@ -9,9 +9,11 @@ import { TerrainRenderer } from './TerrainRenderer';
 import { TerrainTile } from '../world/TerrainTile';
 import { ShadowSystem } from './ShadowSystem';
 import { WaterRenderer } from './WaterRenderer';
+import { SimpleWaterRenderer } from './SimpleWaterRenderer';
 import { WaterSystem } from '../world/WaterSystem';
 import { PerformanceOptimizer } from './PerformanceOptimizer';
 import { VegetationRenderer } from './VegetationRenderer';
+import { SimpleVegetationRenderer } from './SimpleVegetationRenderer';
 import type { VegetationPlacement } from '../world/VegetationSystem';
 
 export interface WebGPURenderingCapabilities {
@@ -95,9 +97,12 @@ export class WebGPURenderer {
     // Advanced rendering systems
     private shadowSystem: ShadowSystem | null = null;
     private waterRenderer: WaterRenderer | null = null;
+    private simpleWaterRenderer: SimpleWaterRenderer | null = null;
     private waterSystem: WaterSystem | null = null;
     private performanceOptimizer: PerformanceOptimizer | null = null;
     private vegetationRenderer: VegetationRenderer | null = null;
+    private simpleVegetationRenderer: SimpleVegetationRenderer | null = null;
+    private useSimpleRenderers: boolean = true; // Use simplified renderers for stability
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;
@@ -273,37 +278,51 @@ export class WebGPURenderer {
         });
 
         this.waterSystem = new WaterSystem();
-        this.waterRenderer = new WaterRenderer(this.device, this.waterSystem, {
-            reflection: {
-                enabled: this.qualitySettings.enableSSR,
-                resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
-                maxDistance: 10000,
-                downscaleFactor: 0.5,
-                updateFrequency: 30,
-                planarReflections: true,
-                screenSpaceReflections: this.qualitySettings.enableSSR,
-            },
-            refraction: {
-                enabled: true,
-                resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
-                distortionStrength: 0.1,
-                refractionIndex: 1.33,
-                underwaterFogDensity: 0.02,
-                underwaterColor: new Vector3(0.1, 0.3, 0.4),
-            },
-            foamEnabled: true,
-            normalMapScale: 1.0,
-            roughness: 0.02,
-            transparency: 0.8,
-            fresnelPower: 5.0,
-            waveScale: 1.0,
-            waveSpeed: 1.0,
-            shoreBlendDistance: 10.0,
-        });
 
-        // Create vegetation renderer
-        this.vegetationRenderer = new VegetationRenderer(this.device, this.shaderManager);
-        await this.vegetationRenderer.initialize();
+        // Initialize both simple and complex renderers
+        if (this.useSimpleRenderers) {
+            // Use simplified renderers for stability
+            this.simpleWaterRenderer = new SimpleWaterRenderer(this.device);
+            await this.simpleWaterRenderer.initialize();
+
+            this.simpleVegetationRenderer = new SimpleVegetationRenderer(this.device);
+            await this.simpleVegetationRenderer.initialize();
+
+            console.log('WebGPURenderer: Using simplified renderers for stability');
+        } else {
+            // Complex renderers (currently unstable)
+            this.waterRenderer = new WaterRenderer(this.device, this.waterSystem, {
+                reflection: {
+                    enabled: this.qualitySettings.enableSSR,
+                    resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
+                    maxDistance: 10000,
+                    downscaleFactor: 0.5,
+                    updateFrequency: 30,
+                    planarReflections: true,
+                    screenSpaceReflections: this.qualitySettings.enableSSR,
+                },
+                refraction: {
+                    enabled: true,
+                    resolution: Math.floor(this.qualitySettings.shadowMapSize * 0.5),
+                    distortionStrength: 0.1,
+                    refractionIndex: 1.33,
+                    underwaterFogDensity: 0.02,
+                    underwaterColor: new Vector3(0.1, 0.3, 0.4),
+                },
+                foamEnabled: true,
+                normalMapScale: 1.0,
+                roughness: 0.02,
+                transparency: 0.8,
+                fresnelPower: 5.0,
+                waveScale: 1.0,
+                waveSpeed: 1.0,
+                shoreBlendDistance: 10.0,
+            });
+
+            // Create vegetation renderer
+            this.vegetationRenderer = new VegetationRenderer(this.device, this.shaderManager);
+            await this.vegetationRenderer.initialize();
+        }
 
         // Create performance optimizer
         this.performanceOptimizer = new PerformanceOptimizer({
@@ -645,7 +664,41 @@ export class WebGPURenderer {
                         this.renderStats.renderTime += performance.now() - terrainStartTime;
 
                         // Render water surfaces
-                        if (this.waterRenderer && this.waterSystem) {
+                        if (
+                            this.useSimpleRenderers &&
+                            this.simpleWaterRenderer &&
+                            this.waterSystem
+                        ) {
+                            // Use simple water renderer
+                            const cullingDistance =
+                                this.performanceOptimizer?.getCullingDistance(this.camera) ?? 50000;
+                            const visibleWaterSurfaces = this.waterSystem.getVisibleSurfaces(
+                                this.camera.getPosition(),
+                                cullingDistance
+                            );
+
+                            if (visibleWaterSurfaces.length > 0) {
+                                if (this.frameCount % 60 === 0) {
+                                    console.log(
+                                        'SimpleWaterRenderer: Rendering',
+                                        visibleWaterSurfaces.length,
+                                        'water surfaces'
+                                    );
+                                }
+                                const waterRenderStartTime = performance.now();
+
+                                this.simpleWaterRenderer.render(
+                                    renderPass,
+                                    this.camera,
+                                    visibleWaterSurfaces,
+                                    performance.now() / 1000
+                                );
+
+                                this.renderStats.renderTime +=
+                                    performance.now() - waterRenderStartTime;
+                            }
+                        } else if (this.waterRenderer && this.waterSystem) {
+                            // Complex water renderer (currently unstable)
                             const cullingDistance =
                                 this.performanceOptimizer?.getCullingDistance(this.camera) ?? 50000;
                             const visibleWaterSurfaces = this.waterSystem.getVisibleSurfaces(
@@ -661,8 +714,6 @@ export class WebGPURenderer {
                                 );
                                 const waterRenderStartTime = performance.now();
 
-                                // Water renderer doesn't use bind group 3, so we don't set it
-                                // The water pipeline only expects bind group 0
                                 this.waterRenderer.render(
                                     renderPass,
                                     this.camera,
@@ -671,28 +722,43 @@ export class WebGPURenderer {
                                 );
                                 this.renderStats.renderTime +=
                                     performance.now() - waterRenderStartTime;
-                            } else if (this.frameCount % 60 === 0) {
-                                console.log('No visible water surfaces to render');
                             }
                         }
 
                         // Render vegetation
-                        if (this.vegetationRenderer && this.eventBus) {
+                        if (this.useSimpleRenderers && this.simpleVegetationRenderer) {
+                            // Use simple vegetation renderer
                             const vegetationStartTime = performance.now();
 
-                            // Use stored vegetation placements
                             if (this.vegetationPlacements.size > 0) {
-                                // Update vegetation renderer with current placements
-                                this.vegetationRenderer.updateBatches(this.vegetationPlacements);
+                                // Convert placements to simple tree instances
+                                const trees: any[] = [];
+                                for (const placement of this.vegetationPlacements.values()) {
+                                    trees.push({
+                                        position: placement.position,
+                                        scale: placement.scale.x,
+                                        rotation: placement.rotation,
+                                    });
+                                }
 
-                                // Update camera uniforms
+                                this.simpleVegetationRenderer.updateInstances(trees);
+                                this.simpleVegetationRenderer.render(
+                                    renderPass,
+                                    this.camera,
+                                    performance.now() / 1000
+                                );
+                            }
+
+                            this.renderStats.renderTime += performance.now() - vegetationStartTime;
+                        } else if (this.vegetationRenderer && this.eventBus) {
+                            // Complex vegetation renderer (currently unstable)
+                            const vegetationStartTime = performance.now();
+
+                            if (this.vegetationPlacements.size > 0) {
+                                this.vegetationRenderer.updateBatches(this.vegetationPlacements);
                                 const viewProjectionMatrix = this.camera.getViewProjectionMatrix();
                                 this.vegetationRenderer.updateCameraUniforms(viewProjectionMatrix);
-
-                                // Update wind simulation
                                 this.vegetationRenderer.updateWind(deltaTime);
-
-                                // Render all vegetation batches
                                 this.vegetationRenderer.render(renderPass);
                             }
 
