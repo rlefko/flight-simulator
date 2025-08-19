@@ -11,17 +11,41 @@ interface TerrainMeshData {
     uniformBuffer: GPUBuffer; // Each mesh needs its own uniform buffer
 }
 
+interface AtmosphericParams {
+    sunDirection: Vector3;
+    sunIntensity: number;
+    timeOfDay: number; // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+    fogDensity: number;
+    fogHeightFalloff: number;
+    mieG: number; // Mie scattering asymmetry parameter
+    exposure: number;
+    rayleighStrength: number;
+    mieStrength: number;
+}
+
 export class TerrainRenderer {
     private device: GPUDevice;
     private pipeline: GPURenderPipeline | null = null;
     private shadowPipeline: GPURenderPipeline | null = null;
     private meshCache: Map<string, TerrainMeshData> = new Map();
     private uniformBuffer: GPUBuffer;
+    private atmosphericBuffer: GPUBuffer;
     private uniformBindGroupLayout: GPUBindGroupLayout;
     private shadowBindGroupLayout: GPUBindGroupLayout | null = null;
     private shadowBindGroup: GPUBindGroup | null = null;
     private pipelineLayout: GPUPipelineLayout;
     private sampleCount: number = 4;
+    private atmosphericParams: AtmosphericParams = {
+        sunDirection: new Vector3(0.5, 0.5, 0.5).normalize(),
+        sunIntensity: 20.0,
+        timeOfDay: 0.5, // Noon
+        fogDensity: 0.000008,
+        fogHeightFalloff: 0.0001,
+        mieG: 0.8,
+        exposure: 1.0,
+        rayleighStrength: 1.0,
+        mieStrength: 1.0,
+    };
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -33,6 +57,11 @@ export class TerrainRenderer {
                 {
                     binding: 0,
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+                {
+                    binding: 1,
+                    visibility: GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
             ],
@@ -101,6 +130,16 @@ export class TerrainRenderer {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
+        // Create atmospheric parameters buffer
+        // Sun direction (12) + sun intensity (4) + time of day (4) + fog density (4) + fog height falloff (4) +
+        // mie G (4) + exposure (4) + rayleigh strength (4) + mie strength (4) + padding = 48 bytes
+        // Round up to 64 for alignment
+        this.atmosphericBuffer = device.createBuffer({
+            label: 'Atmospheric Parameters Buffer',
+            size: 64,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
         this.createPipeline();
         this.createShadowPipeline();
     }
@@ -115,6 +154,80 @@ export class TerrainRenderer {
             this.createPipeline();
             this.createShadowPipeline();
         }
+    }
+
+    /**
+     * Update atmospheric parameters
+     */
+    public updateAtmosphericParams(params: Partial<AtmosphericParams>): void {
+        Object.assign(this.atmosphericParams, params);
+        this.updateAtmosphericBuffer();
+    }
+
+    /**
+     * Set time of day (0.0 = midnight, 0.5 = noon, 1.0 = midnight)
+     */
+    public setTimeOfDay(timeOfDay: number): void {
+        this.atmosphericParams.timeOfDay = timeOfDay;
+
+        // Calculate sun position based on time of day
+        const sunAngle = (timeOfDay - 0.5) * 2.0 * Math.PI;
+        const sunHeight = Math.sin(sunAngle);
+        const sunAzimuth = Math.cos(sunAngle);
+
+        this.atmosphericParams.sunDirection = new Vector3(sunAzimuth, sunHeight, 0.0).normalize();
+
+        // Adjust sun intensity based on height
+        const heightFactor = Math.max(0.0, sunHeight);
+        this.atmosphericParams.sunIntensity = 20.0 * (heightFactor * 0.8 + 0.2);
+
+        this.updateAtmosphericBuffer();
+    }
+
+    /**
+     * Update atmospheric uniform buffer
+     */
+    private updateAtmosphericBuffer(): void {
+        const params = this.atmosphericParams;
+        const data = new Float32Array(16); // 64 bytes / 4 = 16 floats
+
+        // Sun direction (3 floats)
+        data[0] = params.sunDirection.x;
+        data[1] = params.sunDirection.y;
+        data[2] = params.sunDirection.z;
+
+        // Sun intensity (1 float)
+        data[3] = params.sunIntensity;
+
+        // Time of day (1 float)
+        data[4] = params.timeOfDay;
+
+        // Fog density (1 float)
+        data[5] = params.fogDensity;
+
+        // Fog height falloff (1 float)
+        data[6] = params.fogHeightFalloff;
+
+        // Mie G parameter (1 float)
+        data[7] = params.mieG;
+
+        // Exposure (1 float)
+        data[8] = params.exposure;
+
+        // Rayleigh strength (1 float)
+        data[9] = params.rayleighStrength;
+
+        // Mie strength (1 float)
+        data[10] = params.mieStrength;
+
+        // Padding for alignment
+        data[11] = 0.0;
+        data[12] = 0.0;
+        data[13] = 0.0;
+        data[14] = 0.0;
+        data[15] = 0.0;
+
+        this.device.queue.writeBuffer(this.atmosphericBuffer, 0, data);
     }
 
     private createShadowPipeline(): void {
@@ -282,6 +395,18 @@ export class TerrainRenderer {
                 precipitationFactor: f32, // 0.0 = dry, 1.0 = wet
             };
             
+            struct AtmosphericUniforms {
+                sunDirection: vec3<f32>,
+                sunIntensity: f32,
+                timeOfDay: f32,
+                fogDensity: f32,
+                fogHeightFalloff: f32,
+                mieG: f32,
+                exposure: f32,
+                rayleighStrength: f32,
+                mieStrength: f32,
+            };
+            
             struct ShadowUniforms {
                 lightMatrix0: mat4x4<f32>,
                 lightMatrix1: mat4x4<f32>,
@@ -295,6 +420,7 @@ export class TerrainRenderer {
             };
             
             @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+            @group(0) @binding(1) var<uniform> atmosphere: AtmosphericUniforms;
             
             // Shadow resources in separate bind group to avoid conflicts
             @group(3) @binding(0) var shadowMap0: texture_depth_2d;
@@ -1181,7 +1307,123 @@ export class TerrainRenderer {
                 return mix(1.0, shadow, validCascade * inBounds);
             }
             
-            // Enhanced PBR lighting calculation
+            // Atmospheric scattering functions
+            fn rayleighPhase(cosTheta: f32) -> f32 {
+                return 3.0 / (16.0 * 3.14159) * (1.0 + cosTheta * cosTheta);
+            }
+            
+            fn miePhase(cosTheta: f32, g: f32) -> f32 {
+                let g2 = g * g;
+                let cos2 = cosTheta * cosTheta;
+                return 3.0 / (8.0 * 3.14159) * ((1.0 - g2) / (2.0 + g2)) * 
+                       (1.0 + cos2) / pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5);
+            }
+            
+            // Calculate atmospheric scattering
+            fn calculateAtmosphericScattering(
+                worldPos: vec3<f32>,
+                cameraPos: vec3<f32>,
+                sunDirection: vec3<f32>
+            ) -> vec3<f32> {
+                let distance = length(worldPos - cameraPos);
+                let viewDirection = normalize(worldPos - cameraPos);
+                
+                // Distance-based scattering
+                let scatteringFactor = 1.0 - exp(-distance * 0.000015 * atmosphere.rayleighStrength);
+                
+                // Calculate phase functions
+                let cosTheta = dot(viewDirection, sunDirection);
+                let rayleighPhaseValue = rayleighPhase(cosTheta);
+                let miePhaseValue = miePhase(cosTheta, atmosphere.mieG);
+                
+                // Rayleigh scattering (blue sky)
+                let rayleighColor = vec3<f32>(0.3, 0.6, 1.0) * rayleighPhaseValue * atmosphere.rayleighStrength;
+                
+                // Mie scattering (haze and sun glow)
+                let mieColor = vec3<f32>(1.0, 0.9, 0.8) * miePhaseValue * atmosphere.mieStrength;
+                
+                // Sun disk enhancement
+                let sunFactor = pow(max(0.0, cosTheta), 16.0);
+                let sunColor = vec3<f32>(1.0, 0.9, 0.7) * sunFactor;
+                
+                // Combine atmospheric effects
+                return (rayleighColor + mieColor + sunColor) * scatteringFactor * atmosphere.sunIntensity * 0.15;
+            }
+            
+            // Calculate exponential height fog
+            fn calculateHeightFog(worldPos: vec3<f32>, cameraPos: vec3<f32>) -> f32 {
+                let distance = length(worldPos - cameraPos);
+                let heightDifference = abs(worldPos.y - cameraPos.y);
+                
+                // Exponential height falloff
+                let heightFactor = exp(-heightDifference * atmosphere.fogHeightFalloff);
+                
+                // Distance-based fog density
+                let fogFactor = 1.0 - exp(-distance * atmosphere.fogDensity * heightFactor);
+                
+                return clamp(fogFactor, 0.0, 0.95);
+            }
+            
+            // Calculate aerial perspective
+            fn calculateAerialPerspective(
+                originalColor: vec3<f32>,
+                worldPos: vec3<f32>,
+                cameraPos: vec3<f32>
+            ) -> vec3<f32> {
+                let distance = length(worldPos - cameraPos);
+                
+                // Distance-based perspective shifts
+                let perspectiveFactor = 1.0 - exp(-distance * 0.00003);
+                
+                // Blue shift at distance (Rayleigh scattering dominance)
+                let blueShift = vec3<f32>(0.7, 0.8, 1.0);
+                
+                // Contrast reduction at distance
+                let contrastReduction = mix(1.0, 0.4, perspectiveFactor);
+                
+                // Apply aerial perspective
+                var aerialColor = mix(originalColor, blueShift, perspectiveFactor * 0.2);
+                
+                // Reduce contrast
+                let luminance = dot(aerialColor, vec3<f32>(0.299, 0.587, 0.114));
+                aerialColor = mix(vec3<f32>(luminance), aerialColor, contrastReduction);
+                
+                return aerialColor;
+            }
+            
+            // Calculate sky ambient lighting based on atmospheric scattering
+            fn calculateSkyAmbient(normal: vec3<f32>, sunDirection: vec3<f32>) -> vec3<f32> {
+                let skyUp = vec3<f32>(0.0, 1.0, 0.0);
+                let skyColor = vec3<f32>(0.4, 0.7, 1.0); // Blue sky
+                let groundColor = vec3<f32>(0.2, 0.15, 0.1); // Earth tones
+                
+                // Hemisphere lighting
+                let skyFactor = max(0.0, dot(normal, skyUp));
+                let ambientColor = mix(groundColor, skyColor, skyFactor);
+                
+                // Sun influence on ambient
+                let sunInfluence = max(0.0, sunDirection.y) * 0.7 + 0.3;
+                
+                return ambientColor * sunInfluence * atmosphere.sunIntensity * 0.3;
+            }
+            
+            // Enhanced tone mapping with ACES approximation
+            fn toneMapACES(color: vec3<f32>) -> vec3<f32> {
+                let exposedColor = color * atmosphere.exposure;
+                
+                // ACES tone mapping approximation
+                let a = 2.51;
+                let b = 0.03;
+                let c = 2.43;
+                let d = 0.59;
+                let e = 0.14;
+                
+                return clamp((exposedColor * (a * exposedColor + b)) / 
+                           (exposedColor * (c * exposedColor + d) + e), 
+                           vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            // Enhanced PBR lighting calculation with atmospheric effects
             fn calculatePBRLighting(material: MaterialPBR, worldPos: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, shadowFactor: f32) -> vec3<f32> {
                 let normal = material.normal;
                 let halfwayDir = normalize(lightDir + viewDir);
@@ -1218,13 +1460,22 @@ export class TerrainRenderer {
                 
                 let diffuse = kD * material.albedo / 3.14159;
                 
-                // Combine diffuse and specular
-                let lightColor = shadowUniforms.lightColor * shadowUniforms.lightIntensity;
+                // Enhanced sun lighting based on atmospheric parameters
+                let sunColor = vec3<f32>(1.0, 0.95, 0.8);
+                
+                // Adjust sun color based on time of day
+                let sunHeight = atmosphere.sunDirection.y;
+                let sunColorModified = mix(
+                    vec3<f32>(1.0, 0.4, 0.1), // Sunset/sunrise orange
+                    sunColor,                   // Noon white
+                    clamp(sunHeight * 2.0, 0.0, 1.0)
+                );
+                
+                let lightColor = sunColorModified * atmosphere.sunIntensity;
                 let brdf = (diffuse + specular) * lightColor * NdotL * shadowFactor;
                 
-                // Ambient lighting with image-based approximation
-                let ambientStrength = 0.15;
-                let ambient = material.albedo * ambientStrength * material.ao;
+                // Sky ambient lighting based on atmospheric scattering
+                let ambient = material.albedo * calculateSkyAmbient(normal, atmosphere.sunDirection) * material.ao;
                 
                 return brdf + ambient;
             }
@@ -1241,7 +1492,7 @@ export class TerrainRenderer {
                 // Calculate shadow
                 let shadowFactor = calculateShadow(input.worldPos, material.normal, input.viewDepth);
                 
-                // Calculate PBR lighting
+                // Calculate enhanced PBR lighting with atmospheric effects
                 var finalColor = calculatePBRLighting(material, input.worldPos, viewDir, lightDir, shadowFactor);
                 
                 // Add slope-based ambient occlusion enhancement
@@ -1249,43 +1500,30 @@ export class TerrainRenderer {
                 let slopeAO = mix(1.0, 0.8, slopeFactor * 0.5);
                 finalColor *= slopeAO;
                 
-                // Enhanced atmospheric scattering
-                let distance = length(uniforms.cameraPosition - input.worldPos);
-                let scatteringCoeff = 0.000012;
-                let scattering = 1.0 - exp(-distance * scatteringCoeff);
+                // Apply atmospheric scattering
+                let atmosphericLight = calculateAtmosphericScattering(
+                    input.worldPos, uniforms.cameraPosition, atmosphere.sunDirection
+                );
+                finalColor += atmosphericLight;
                 
-                let sunDirection = -shadowUniforms.lightDirection;
-                let viewDirection = normalize(input.worldPos - uniforms.cameraPosition);
-                let cosTheta = dot(viewDirection, sunDirection);
-                
-                // Improved Mie scattering phase function
-                let mieG = 0.8;
-                let miePhase = (1.0 - mieG * mieG) / pow(1.0 + mieG * mieG - 2.0 * mieG * cosTheta, 1.5);
-                
-                // Realistic atmospheric colors
-                let horizonColor = vec3<f32>(0.7, 0.8, 0.9);
-                let zenithColor = vec3<f32>(0.2, 0.5, 0.8);
-                let sunColor = vec3<f32>(1.0, 0.9, 0.7);
-                
-                let skyColor = mix(
-                    mix(horizonColor, zenithColor, clamp(sunDirection.y, 0.0, 1.0)),
-                    sunColor,
-                    pow(max(0.0, cosTheta), 8.0) * (1.0 - abs(sunDirection.y))
+                // Apply aerial perspective (distance-based color shifts)
+                finalColor = calculateAerialPerspective(
+                    finalColor, input.worldPos, uniforms.cameraPosition
                 );
                 
-                let scatteredLight = skyColor * scattering * miePhase * 0.15;
-                finalColor += scatteredLight;
+                // Apply exponential height fog
+                let fogFactor = calculateHeightFog(input.worldPos, uniforms.cameraPosition);
                 
-                // Distance fog with atmospheric perspective
-                let fogStart = 8000.0;
-                let fogEnd = 35000.0;
-                let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
-                let fogColor = skyColor * 0.8;
+                // Calculate fog color based on atmospheric scattering
+                let fogColor = calculateAtmosphericScattering(
+                    input.worldPos, uniforms.cameraPosition, atmosphere.sunDirection
+                ) * 2.0 + vec3<f32>(0.6, 0.7, 0.9) * atmosphere.sunIntensity * 0.3;
                 
-                finalColor = mix(fogColor, finalColor, fogFactor);
+                // Blend with fog
+                finalColor = mix(finalColor, fogColor, fogFactor);
                 
-                // Tone mapping (ACES approximation)
-                finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
+                // Enhanced HDR tone mapping with ACES approximation
+                finalColor = toneMapACES(finalColor);
                 
                 // Gamma correction
                 finalColor = pow(finalColor, vec3<f32>(1.0 / 2.2));
@@ -1435,13 +1673,21 @@ export class TerrainRenderer {
             const normalMatrix = modelMatrix.clone().invert().transpose();
 
             // Update the tile's own uniform buffer
-            // Total: 16 + 16 + 16 + 3 + 1 = 52 floats = 208 bytes
-            const uniformData = new Float32Array(52);
+            // Total: 16 + 16 + 16 + 3 + 1 + seasonal params (8) = 60 floats = 240 bytes
+            const uniformData = new Float32Array(64); // Round up to 256 bytes / 4 = 64 floats
             uniformData.set(mvpMatrix.elements, 0); // 16 floats at offset 0
             uniformData.set(modelMatrix.elements, 16); // 16 floats at offset 16
             uniformData.set(normalMatrix.elements, 32); // 16 floats at offset 32
             uniformData.set([cameraPosition.x, cameraPosition.y, cameraPosition.z], 48); // 3 floats at offset 48
             uniformData[51] = time; // 1 float at offset 51
+
+            // Add seasonal and environmental parameters
+            uniformData[52] = 0.25; // seasonFactor (spring)
+            uniformData[53] = 0.0; // temperatureFactor (temperate)
+            uniformData[54] = 0.5; // precipitationFactor (moderate)
+
+            // Update atmospheric parameters
+            this.updateAtmosphericBuffer();
 
             this.device.queue.writeBuffer(meshData.uniformBuffer, 0, uniformData);
 
@@ -1461,7 +1707,7 @@ export class TerrainRenderer {
      * Create bind group for terrain with shadow support
      */
     private createTerrainBindGroup(tileId: string, uniformBuffer: GPUBuffer): GPUBindGroup {
-        // Only create uniform bind group (group 0) with the uniform buffer
+        // Create uniform bind group (group 0) with both uniform and atmospheric buffers
         // Shadow resources will be in a separate bind group (group 3)
         return this.device.createBindGroup({
             label: `Terrain Bind Group ${tileId}`,
@@ -1470,6 +1716,10 @@ export class TerrainRenderer {
                 {
                     binding: 0,
                     resource: { buffer: uniformBuffer },
+                },
+                {
+                    binding: 1,
+                    resource: { buffer: this.atmosphericBuffer },
                 },
             ],
         });
@@ -1633,6 +1883,7 @@ export class TerrainRenderer {
 
     public destroy(): void {
         this.uniformBuffer.destroy();
+        this.atmosphericBuffer.destroy();
         for (const meshData of this.meshCache.values()) {
             meshData.vertexBuffer.destroy();
             meshData.indexBuffer.destroy();
