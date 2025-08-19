@@ -145,26 +145,54 @@ export class SimpleWaterRenderer {
             fn vs_main(input: VertexInput) -> VertexOutput {
                 var output: VertexOutput;
                 
-                // Apply simple wave displacement for more realistic water surface
+                // Apply multi-scale natural wave displacement
                 var worldPos = input.position;
                 let waveTime = uniforms.time;
                 
-                // Multi-frequency wave displacement
-                let wave1 = sin(worldPos.x * 0.02 + waveTime * 1.5) * cos(worldPos.z * 0.015 + waveTime * 1.2) * 0.3;
-                let wave2 = sin(worldPos.x * 0.035 + waveTime * 2.1) * cos(worldPos.z * 0.028 + waveTime * 1.8) * 0.15;
-                let wave3 = sin((worldPos.x + worldPos.z) * 0.05 + waveTime * 2.8) * 0.08;
+                // Large ocean swells (50-200m wavelength)
+                let swell1 = sin(worldPos.x * 0.008 + worldPos.z * 0.005 + waveTime * 0.6) * 0.8;
+                let swell2 = sin(worldPos.x * 0.006 - worldPos.z * 0.007 + waveTime * 0.5) * 0.6;
                 
-                worldPos.y += wave1 + wave2 + wave3;
+                // Medium waves (10-50m wavelength) 
+                let wave1 = sin(worldPos.x * 0.02 + worldPos.z * 0.015 + waveTime * 1.2) * 0.4;
+                let wave2 = sin(worldPos.x * 0.025 - worldPos.z * 0.018 + waveTime * 1.5) * 0.3;
+                let wave3 = sin(worldPos.x * 0.03 + worldPos.z * 0.022 + waveTime * 1.8) * 0.25;
+                
+                // Small ripples (0.1-2m wavelength)
+                let ripple1 = sin(worldPos.x * 0.15 + worldPos.z * 0.12 + waveTime * 3.0) * 0.08;
+                let ripple2 = sin(worldPos.x * 0.18 - worldPos.z * 0.14 + waveTime * 3.5) * 0.06;
+                
+                // Combine all wave components for natural ocean surface
+                worldPos.y += swell1 + swell2 + wave1 + wave2 + wave3 + ripple1 + ripple2;
                 
                 output.position = uniforms.mvpMatrix * vec4<f32>(worldPos, 1.0);
                 output.worldPos = worldPos;
                 
                 // Calculate surface normal from wave gradients for better lighting
-                let epsilon = 2.0;
-                let heightL = sin((worldPos.x - epsilon) * 0.02 + waveTime * 1.5) * cos(worldPos.z * 0.015 + waveTime * 1.2) * 0.3;
-                let heightR = sin((worldPos.x + epsilon) * 0.02 + waveTime * 1.5) * cos(worldPos.z * 0.015 + waveTime * 1.2) * 0.3;
-                let heightD = sin(worldPos.x * 0.02 + waveTime * 1.5) * cos((worldPos.z - epsilon) * 0.015 + waveTime * 1.2) * 0.3;
-                let heightU = sin(worldPos.x * 0.02 + waveTime * 1.5) * cos((worldPos.z + epsilon) * 0.015 + waveTime * 1.2) * 0.3;
+                let epsilon = 1.0;
+                
+                // Sample wave height at neighboring points for normal calculation
+                let posL = vec2<f32>(worldPos.x - epsilon, worldPos.z);
+                let posR = vec2<f32>(worldPos.x + epsilon, worldPos.z);
+                let posD = vec2<f32>(worldPos.x, worldPos.z - epsilon);
+                let posU = vec2<f32>(worldPos.x, worldPos.z + epsilon);
+                
+                // Calculate wave heights using the same multi-scale approach
+                let heightL = sin(posL.x * 0.008 + posL.y * 0.005 + waveTime * 0.6) * 0.8 +
+                             sin(posL.x * 0.02 + posL.y * 0.015 + waveTime * 1.2) * 0.4 +
+                             sin(posL.x * 0.15 + posL.y * 0.12 + waveTime * 3.0) * 0.08;
+                             
+                let heightR = sin(posR.x * 0.008 + posR.y * 0.005 + waveTime * 0.6) * 0.8 +
+                             sin(posR.x * 0.02 + posR.y * 0.015 + waveTime * 1.2) * 0.4 +
+                             sin(posR.x * 0.15 + posR.y * 0.12 + waveTime * 3.0) * 0.08;
+                             
+                let heightD = sin(posD.x * 0.008 + posD.y * 0.005 + waveTime * 0.6) * 0.8 +
+                             sin(posD.x * 0.02 + posD.y * 0.015 + waveTime * 1.2) * 0.4 +
+                             sin(posD.x * 0.15 + posD.y * 0.12 + waveTime * 3.0) * 0.08;
+                             
+                let heightU = sin(posU.x * 0.008 + posU.y * 0.005 + waveTime * 0.6) * 0.8 +
+                             sin(posU.x * 0.02 + posU.y * 0.015 + waveTime * 1.2) * 0.4 +
+                             sin(posU.x * 0.15 + posU.y * 0.12 + waveTime * 3.0) * 0.08;
                 
                 let normalX = (heightL - heightR) / (2.0 * epsilon);
                 let normalZ = (heightD - heightU) / (2.0 * epsilon);
@@ -181,12 +209,12 @@ export class SimpleWaterRenderer {
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Enhanced water colors with more convincing depth gradation
-                let veryShallowColor = vec3<f32>(0.7, 0.95, 1.0);  // Very light turquoise
-                let shallowColor = vec3<f32>(0.3, 0.8, 0.95);      // Bright turquoise  
-                let mediumColor = vec3<f32>(0.15, 0.55, 0.8);      // Medium blue
-                let deepColor = vec3<f32>(0.05, 0.3, 0.7);        // Deep ocean blue
-                let veryDeepColor = vec3<f32>(0.02, 0.15, 0.5);   // Very deep blue
+                // Realistic ocean water colors (RGB values normalized to 0-1)
+                let coastalColor = vec3<f32>(125.0/255.0, 184.0/255.0, 216.0/255.0);  // Coastal: 0-5m depth
+                let shallowColor = vec3<f32>(74.0/255.0, 140.0/255.0, 184.0/255.0);   // Shallow: 5-20m depth
+                let midColor = vec3<f32>(27.0/255.0, 79.0/255.0, 122.0/255.0);        // Mid ocean: 20-100m depth
+                let deepColor = vec3<f32>(11.0/255.0, 47.0/255.0, 86.0/255.0);        // Deep ocean: >100m depth
+                let veryDeepColor = vec3<f32>(8.0/255.0, 32.0/255.0, 64.0/255.0);     // Very deep ocean
                 
                 // FIXED: Use a more reliable depth calculation
                 // Start with a base water color and make depth calculations more predictable
@@ -201,34 +229,49 @@ export class SimpleWaterRenderer {
                 let depthFactor2 = clamp(combinedDepth - 1.0, 0.0, 1.0);
                 let depthFactor3 = clamp(combinedDepth - 2.0, 0.0, 1.0);
                 
-                // Progressive color transitions
-                var waterColor = mix(veryShallowColor, shallowColor, depthFactor1);
-                waterColor = mix(waterColor, mediumColor, depthFactor2);
+                // Progressive color transitions based on realistic depth zones
+                var waterColor = mix(coastalColor, shallowColor, depthFactor1);
+                waterColor = mix(waterColor, midColor, depthFactor2);
                 waterColor = mix(waterColor, deepColor, depthFactor3);
                 waterColor = mix(waterColor, veryDeepColor, clamp(combinedDepth - 3.0, 0.0, 1.0));
                 
                 // FAILSAFE: Ensure we always have a blue water color, never gray
-                // If all depth calculations fail, default to medium blue water
+                // If all depth calculations fail, default to realistic mid-ocean color
                 if (length(waterColor) < 0.1) {
-                    waterColor = vec3<f32>(0.2, 0.6, 0.9); // Fallback medium blue
+                    waterColor = midColor; // Fallback to realistic mid-ocean blue
                 }
                 
-                // Add subtle animated wave patterns with multiple frequencies
-                let waveTime = uniforms.time * 0.8;
-                let waveOffset1 = sin(input.uv.x * 25.0 + waveTime * 2.2) * 0.08;
-                let waveOffset2 = cos(input.uv.y * 18.0 + waveTime * 1.7) * 0.06;
-                let waveOffset3 = sin((input.uv.x + input.uv.y) * 12.0 + waveTime * 2.8) * 0.04;
+                // Add natural wave color variation (no grid patterns)
+                let waveTime = uniforms.time * 0.5;
+                let worldUV = input.worldPos.xz * 0.001; // Use world coordinates for natural variation
+                
+                // Large scale wave color variation
+                let waveOffset1 = sin(worldUV.x * 3.0 + worldUV.y * 2.5 + waveTime * 1.2) * 0.06;
+                let waveOffset2 = sin(worldUV.x * 4.5 - worldUV.y * 3.2 + waveTime * 1.8) * 0.04;
+                let waveOffset3 = sin(worldUV.x * 6.0 + worldUV.y * 5.5 + waveTime * 2.5) * 0.03;
                 let waveIntensity = waveOffset1 + waveOffset2 + waveOffset3;
                 
                 // Enhanced wave color effects with depth modulation
                 let waveColorEffect = vec3<f32>(0.08, 0.12, 0.18) * waveIntensity * (1.0 - depthFactor1 * 0.5);
                 waterColor += waveColorEffect;
                 
-                // Create surface foam effect for shallow water
-                let foamFactor = 1.0 - smoothstep(0.0, 0.3, combinedDepth);
-                let foamNoise = sin(input.uv.x * 60.0 + waveTime * 3.0) * cos(input.uv.y * 45.0 + waveTime * 2.5);
-                let foam = foamFactor * max(0.0, foamNoise) * 0.15;
-                waterColor = mix(waterColor, vec3<f32>(0.9, 0.95, 1.0), foam);
+                // Enhanced foam and whitecaps based on wave steepness
+                let windSpeed = 8.0; // m/s - moderate wind
+                let foamThreshold = 0.6; // Wave steepness threshold for foam
+                
+                // Calculate wave steepness from normal
+                let waveSlope = length(waveNormal.xz);
+                let foamIntensity = smoothstep(foamThreshold, 1.0, waveSlope);
+                
+                // Add wind-based whitecaps
+                let whitecapFactor = smoothstep(5.0, 15.0, windSpeed) * 0.3;
+                let whitecapNoise = sin(worldUV.x * 20.0 + waveTime * 4.0) * cos(worldUV.y * 15.0 + waveTime * 3.5);
+                let whitecaps = whitecapFactor * max(0.0, whitecapNoise * 0.5 + 0.5) * foamIntensity;
+                
+                // Combine foam effects
+                let foamColor = vec3<f32>(0.95, 0.98, 1.0);
+                let totalFoam = foamIntensity * 0.2 + whitecaps;
+                waterColor = mix(waterColor, foamColor, totalFoam);
                 
                 // Improved lighting with sun reflection
                 let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.5));
@@ -249,8 +292,14 @@ export class SimpleWaterRenderer {
                 let specularPower = 64.0; // Sharper water reflections
                 let specular = pow(max(dot(viewDir, reflectDir), 0.0), specularPower) * 0.8;
                 
-                // Fresnel effect with proper water refractive index
-                let fresnel = pow(1.0 - max(dot(viewDir, waveNormal), 0.0), 1.8);
+                // Proper Fresnel reflectance using Schlick's approximation
+                let F0 = 0.02; // Water's base reflectance at normal incidence
+                let cosTheta = max(dot(viewDir, waveNormal), 0.0);
+                let fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+                
+                // Sky reflection color (simplified sky dome)
+                let skyColor = vec3<f32>(0.5, 0.7, 1.0); // Light blue sky
+                let skyReflection = skyColor * fresnel;
                 
                 // Depth-dependent transparency - make water more opaque
                 let depthTransparency = mix(0.75, 0.95, clamp(combinedDepth, 0.0, 1.0));
@@ -268,16 +317,16 @@ export class SimpleWaterRenderer {
                 let causticPattern = sin(input.uv.x * 40.0 + waveTime * 1.5) * cos(input.uv.y * 35.0 + waveTime * 1.2);
                 let caustics = causticsStrength * max(0.0, causticPattern) * 0.1;
                 
-                // Final color composition
-                let finalColor = waterColor * ndotl + vec3<f32>(1.0, 1.0, 0.9) * specular + vec3<f32>(0.8, 0.9, 1.0) * caustics;
+                // Final color composition with sky reflections
+                var finalColor = waterColor * ndotl + skyReflection + vec3<f32>(1.0, 1.0, 0.9) * specular + vec3<f32>(0.8, 0.9, 1.0) * caustics;
                 
                 // Add subtle subsurface scattering
                 let backscatter = max(0.0, -dot(viewDir, lightDir)) * (1.0 - depthFactor1) * 0.2;
                 finalColor += vec3<f32>(0.4, 0.7, 0.9) * backscatter;
                 
-                // FINAL FAILSAFE: Ensure the returned color is always visible blue water
+                // FINAL FAILSAFE: Ensure the returned color is always visible realistic water
                 if (length(finalColor) < 0.1 || alpha < 0.1) {
-                    return vec4<f32>(0.2, 0.6, 0.9, 0.85); // Guaranteed blue water
+                    return vec4<f32>(midColor, 0.85); // Guaranteed realistic ocean water
                 }
                 
                 return vec4<f32>(finalColor, alpha);
@@ -290,7 +339,7 @@ export class SimpleWaterRenderer {
      */
     private createWaterMesh(surface: WaterSurface): void {
         const { minX, maxX, minZ, maxZ } = surface.bounds;
-        const resolution = 10; // Simple 10x10 grid
+        const resolution = 50; // Higher resolution for better wave detail
         const sizeX = maxX - minX;
         const sizeZ = maxZ - minZ;
         const stepX = sizeX / (resolution - 1);
