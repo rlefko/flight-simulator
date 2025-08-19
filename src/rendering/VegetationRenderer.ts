@@ -194,73 +194,116 @@ export class VegetationRenderer {
     }
 
     /**
-     * Create tree geometry
+     * Create tree geometry - using cone shape for visibility
      */
     private async createTreeGeometry(): Promise<void> {
-        // Simple billboard quad for trees
-        const vertices = new Float32Array([
-            // Position (x, y, z), Normal (x, y, z), UV (u, v)
-            -0.5,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            1.0, // Bottom left
-            0.5,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            1.0,
-            1.0, // Bottom right
-            0.5,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            1.0,
-            0.0, // Top right
-            -0.5,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            0.0, // Top left
-        ]);
+        const segments = 8; // Number of sides for the cone
+        const height = 25.0; // Make trees tall (25m)
+        const radius = 4.0; // Base radius (4m)
 
-        const indices = new Uint16Array([
-            0,
-            1,
-            2,
-            0,
-            2,
-            3, // Two triangles for quad
-        ]);
+        const vertices: number[] = [];
+        const indices: number[] = [];
+
+        // Create cone vertices
+        // Bottom center vertex
+        vertices.push(0, 0, 0, 0, -1, 0, 0.5, 0.5); // pos, normal, uv
+
+        // Top center vertex
+        vertices.push(0, height, 0, 0, 1, 0, 0.5, 0.5); // pos, normal, uv
+
+        // Bottom ring vertices
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+
+            // Calculate side normal for cone
+            const normalX = Math.cos(angle);
+            const normalZ = Math.sin(angle);
+            const normalY = radius / height; // Slope of cone
+            const normalLength = Math.sqrt(
+                normalX * normalX + normalY * normalY + normalZ * normalZ
+            );
+
+            vertices.push(
+                x,
+                0,
+                z, // position
+                normalX / normalLength,
+                normalY / normalLength,
+                normalZ / normalLength, // normal
+                i / segments,
+                0 // uv
+            );
+        }
+
+        // Top ring vertices (for side faces)
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const normalX = Math.cos(angle);
+            const normalZ = Math.sin(angle);
+            const normalY = radius / height;
+            const normalLength = Math.sqrt(
+                normalX * normalX + normalY * normalY + normalZ * normalZ
+            );
+
+            vertices.push(
+                0,
+                height,
+                0, // position (all converge at top)
+                normalX / normalLength,
+                normalY / normalLength,
+                normalZ / normalLength, // normal
+                i / segments,
+                1 // uv
+            );
+        }
+
+        // Create indices
+        // Bottom face (fan from center)
+        for (let i = 0; i < segments; i++) {
+            const next = (i + 1) % segments;
+            indices.push(0, 2 + next, 2 + i); // Bottom center, next bottom vertex, current bottom vertex
+        }
+
+        // Side faces
+        for (let i = 0; i < segments; i++) {
+            const next = (i + 1) % segments;
+            const bottomCurrent = 2 + i;
+            const bottomNext = 2 + next;
+            const topCurrent = 2 + segments + i;
+            const topNext = 2 + segments + next;
+
+            // Two triangles per side face
+            indices.push(bottomCurrent, topNext, topCurrent);
+            indices.push(bottomCurrent, bottomNext, topNext);
+        }
+
+        console.log(
+            `VegetationRenderer: Created tree geometry with ${vertices.length / 8} vertices and ${indices.length / 3} triangles`
+        );
+
+        const vertexData = new Float32Array(vertices);
+        const indexData = new Uint16Array(indices);
 
         // Create vertex buffer for tree geometry
         const treeVertexBuffer = this.device.createBuffer({
-            size: vertices.byteLength,
+            size: vertexData.byteLength,
             usage: GPUBufferUsage.VERTEX,
             mappedAtCreation: true,
             label: 'tree-vertex-buffer',
         });
-        new Float32Array(treeVertexBuffer.getMappedRange()).set(vertices);
+        new Float32Array(treeVertexBuffer.getMappedRange()).set(vertexData);
         treeVertexBuffer.unmap();
 
         // Create index buffer for tree geometry
         const treeIndexBuffer = this.device.createBuffer({
-            size: indices.byteLength,
+            size: indexData.byteLength,
             usage: GPUBufferUsage.INDEX,
             mappedAtCreation: true,
             label: 'tree-index-buffer',
         });
-        new Uint16Array(treeIndexBuffer.getMappedRange()).set(indices);
+        new Uint16Array(treeIndexBuffer.getMappedRange()).set(indexData);
         treeIndexBuffer.unmap();
 
         // Store tree geometry (will be used by all tree species)

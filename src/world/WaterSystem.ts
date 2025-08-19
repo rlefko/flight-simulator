@@ -604,16 +604,25 @@ export class WaterSystem {
         const stepX = sizeX / (resolution - 1);
         const stepZ = sizeZ / (resolution - 1);
 
+        console.log(
+            `WaterSystem: Generating mesh for surface ${surface.id} with ${resolution}x${resolution} resolution`
+        );
+        console.log(`WaterSystem: Bounds: ${minX}-${maxX} x ${minZ}-${maxZ}`);
+
         // Generate vertices
         for (let i = 0; i < resolution; i++) {
             for (let j = 0; j < resolution; j++) {
                 const x = minX + j * stepX;
                 const z = minZ + i * stepZ;
-                const y = this.getWaterHeightAt(x, z);
+
+                // Use a fixed water level for now, with small wave variations
+                const baseWaterLevel = WATER_CONFIG.SEA_LEVEL;
+                const waveOffset = this.calculateSimpleWaveHeight(x, z, this.physics.currentTime);
+                const y = baseWaterLevel + waveOffset;
 
                 vertices.push(x, y, z);
 
-                // Calculate normal
+                // Calculate normal with wave displacement
                 const normal = this.getWaterNormalAt(x, z);
                 normals.push(normal.x, normal.y, normal.z);
 
@@ -625,16 +634,20 @@ export class WaterSystem {
                     surface.waveHeight,
                     this.physics.windSpeed,
                     this.physics.wavePhase,
-                    0 // Reserved
+                    waveOffset // Use the wave offset as the 4th component
                 );
 
-                // Depth information
-                const depth = Math.max(0, y - this.getTerrainHeightAt(x, z));
+                // Depth information - use a reasonable default depth
+                const depth = 5.0 + Math.random() * 10.0; // 5-15m depth variation
                 depthData.push(depth);
 
-                // Foam intensity
-                const shoreData = this.getShoreDataAt(x, z);
-                foamMask.push(shoreData.foamIntensity * 255);
+                // Foam intensity - add some shore foam
+                const distanceToCenter = Math.sqrt(
+                    (x - surface.center.x) ** 2 + (z - surface.center.z) ** 2
+                );
+                const maxDistance = Math.max(sizeX, sizeZ) * 0.5;
+                const foamIntensity = Math.max(0, 1 - (distanceToCenter / maxDistance) * 0.8); // More foam near edges
+                foamMask.push(foamIntensity * 128); // Moderate foam intensity
             }
         }
 
@@ -653,6 +666,10 @@ export class WaterSystem {
             }
         }
 
+        console.log(
+            `WaterSystem: Generated mesh with ${vertices.length / 3} vertices and ${indices.length / 3} triangles`
+        );
+
         return {
             vertices: new Float32Array(vertices),
             indices: new Uint32Array(indices),
@@ -664,6 +681,22 @@ export class WaterSystem {
             vertexCount: vertices.length / 3,
             triangleCount: indices.length / 3,
         };
+    }
+
+    /**
+     * Calculate simple wave height for mesh generation
+     */
+    private calculateSimpleWaveHeight(x: number, z: number, time: number): number {
+        let height = 0;
+
+        // Use the existing wave components to calculate height
+        for (const wave of this.physics.waveComponents) {
+            const phaseShift = wave.direction.x * x * 0.01 + wave.direction.z * z * 0.01; // Scale down for reasonable waves
+            const wavePhase = wave.frequency * time + wave.phase + phaseShift;
+            height += wave.amplitude * Math.sin(wavePhase);
+        }
+
+        return height * 0.5; // Scale down wave amplitude for visibility
     }
 
     private getTerrainHeightAt(x: number, z: number): number {

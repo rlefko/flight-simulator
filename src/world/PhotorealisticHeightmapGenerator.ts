@@ -548,11 +548,11 @@ export class PhotorealisticHeightmapGenerator {
                     } else {
                         materials[index] = 10; // Lake
                     }
-                } else if (elevation < 0) {
-                    // Ocean
+                } else if (elevation < 10) {
+                    // Ocean/Sea - make water more visible by increasing threshold
                     materials[index] = 0;
                     waterMask[index] = 255;
-                } else if (elevation < 5) {
+                } else if (elevation < 20) {
                     // Beach
                     materials[index] = 1;
                     waterMask[index] = 0;

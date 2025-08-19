@@ -654,7 +654,15 @@ export class WebGPURenderer {
                             );
 
                             if (visibleWaterSurfaces.length > 0) {
+                                console.log(
+                                    'Rendering',
+                                    visibleWaterSurfaces.length,
+                                    'water surfaces'
+                                );
                                 const waterRenderStartTime = performance.now();
+
+                                // Water renderer doesn't use bind group 3, so we don't set it
+                                // The water pipeline only expects bind group 0
                                 this.waterRenderer.render(
                                     renderPass,
                                     this.camera,
@@ -663,6 +671,8 @@ export class WebGPURenderer {
                                 );
                                 this.renderStats.renderTime +=
                                     performance.now() - waterRenderStartTime;
+                            } else if (this.frameCount % 60 === 0) {
+                                console.log('No visible water surfaces to render');
                             }
                         }
 

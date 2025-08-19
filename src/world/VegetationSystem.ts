@@ -204,7 +204,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1500,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 20, // Drastically reduced for performance
+            density: 5, // Very low density for better visibility
             minHeight: 12,
             maxHeight: 25,
             canopyRadius: 8,
@@ -222,7 +222,7 @@ export class VegetationSystem {
             minElevation: 500,
             maxElevation: 3000,
             maxSlope: Math.PI / 4, // 45 degrees
-            density: 30, // Drastically reduced for performance
+            density: 3, // Very low density for better visibility
             minHeight: 15,
             maxHeight: 35,
             canopyRadius: 5,
@@ -236,7 +236,7 @@ export class VegetationSystem {
             minElevation: -5,
             maxElevation: 50,
             maxSlope: Math.PI / 8, // 22.5 degrees
-            density: 10, // Reduced for performance
+            density: 2, // Very low density for better visibility
             minHeight: 8,
             maxHeight: 18,
             canopyRadius: 6,
@@ -250,7 +250,7 @@ export class VegetationSystem {
             minElevation: 200,
             maxElevation: 2000,
             maxSlope: Math.PI / 5, // 36 degrees
-            density: 40, // Drastically reduced for performance
+            density: 4, // Very low density for better visibility
             minHeight: 8,
             maxHeight: 20,
             canopyRadius: 4,
@@ -264,7 +264,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1000,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 5, // Reduced for performance
+            density: 1, // Very low density for better visibility
             minHeight: 2,
             maxHeight: 8,
             canopyRadius: 1,
@@ -648,13 +648,21 @@ export class VegetationSystem {
             species.minHeight + this.random() * (species.maxHeight - species.minHeight);
         const scaleVariation = 0.8 + this.random() * 0.4; // 80%-120% scale variation
 
+        // Scale trees properly - the geometry is 25m tall, so scale to desired height
+        const baseHeight = 25.0; // Height of the cone geometry
+        const heightScale = heightVariation / baseHeight;
+
+        console.log(
+            `VegetationSystem: Creating tree at (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}) height: ${heightVariation.toFixed(1)}m`
+        );
+
         return {
             id: `tree_${speciesId}_${x}_${z}`,
             type: 'tree',
             speciesId,
             position: new Vector3(x, y, z),
             rotation: this.random() * Math.PI * 2,
-            scale: new Vector3(scaleVariation, heightVariation / species.maxHeight, scaleVariation),
+            scale: new Vector3(scaleVariation, heightScale, scaleVariation), // Scale height to match species
             distance: 0,
             visible: true,
             lodLevel: 0,

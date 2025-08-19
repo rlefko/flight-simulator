@@ -616,13 +616,16 @@ export class WaterRenderer {
             }
             
             fn calculateWaveOffset(pos: vec2<f32>, time: f32) -> f32 {
-                let wave1 = sin(dot(pos, vec2<f32>(0.7, 0.3)) * globals.waveFrequency + time * globals.waveSpeed) * globals.waveAmplitude;
-                let wave2 = sin(dot(pos, vec2<f32>(-0.5, 0.8)) * globals.waveFrequency * 1.3 + time * globals.waveSpeed * 1.1) * globals.waveAmplitude * 0.5;
-                return wave1 + wave2;
+                // Multiple wave components for realistic water motion
+                let wave1 = sin(dot(pos, vec2<f32>(0.7, 0.3)) * 0.02 + time * 2.0) * 0.8;
+                let wave2 = sin(dot(pos, vec2<f32>(-0.5, 0.8)) * 0.025 + time * 1.7) * 0.5;
+                let wave3 = sin(dot(pos, vec2<f32>(0.2, -0.9)) * 0.03 + time * 2.3) * 0.3;
+                let wave4 = sin(dot(pos, vec2<f32>(-0.8, -0.2)) * 0.015 + time * 1.2) * 0.4;
+                return (wave1 + wave2 + wave3 + wave4) * globals.waveAmplitude;
             }
             
             fn calculateWaveNormal(pos: vec2<f32>, time: f32) -> vec3<f32> {
-                let epsilon = 1.0;
+                let epsilon = 2.0;
                 let heightL = calculateWaveOffset(pos - vec2<f32>(epsilon, 0.0), time);
                 let heightR = calculateWaveOffset(pos + vec2<f32>(epsilon, 0.0), time);
                 let heightD = calculateWaveOffset(pos - vec2<f32>(0.0, epsilon), time);
