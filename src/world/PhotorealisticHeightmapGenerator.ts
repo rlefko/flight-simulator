@@ -1115,14 +1115,14 @@ export class PhotorealisticHeightmapGenerator {
                     const distance = Math.sqrt(di * di + dj * dj);
                     const weight = Math.max(0, 1 - distance / radius);
 
-                    const neighborScores = this.calculateBiomeSuitability(
+                    const biomeScores = this.calculateBiomeSuitability(
                         heightmap[nIndex],
                         slopes[nIndex],
                         temperatureMap[nIndex],
                         moistureMap[nIndex]
                     );
 
-                    for (const [biomeId, score] of Object.entries(neighborScores)) {
+                    for (const [biomeId, score] of Object.entries(biomeScores)) {
                         const id = parseInt(biomeId);
                         if (!neighborScores[id]) neighborScores[id] = [];
                         neighborScores[id].push(score * weight);

@@ -113,7 +113,7 @@ export class WebGPURenderer {
     private grassDistribution: GrassDistribution | null = null;
     private grassClusters: Map<string, GrassCluster[]> = new Map();
     private vegetationSystem: any = null; // Will be set by external system
-    private useSimpleRenderers: boolean = false; // Use advanced renderers
+    private useSimpleRenderers: boolean = true; // Use simple renderers for stability
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;

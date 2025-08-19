@@ -285,7 +285,7 @@ fn fs_patch(input: PatchVertexOutput) -> @location(0) vec4<f32> {
     grass_color = vec4<f32>(grass_color.rgb * lighting, grass_color.a);
     
     // Fade out edges of patches for blending
-    let edge_fade = min(
+    var edge_fade = min(
         min(uv.x, 1.0 - uv.x),
         min(uv.y, 1.0 - uv.y)
     ) * 4.0;
@@ -344,7 +344,7 @@ fn apply_grass_type_coloring(base_color: vec4<f32>, grass_type: f32) -> vec4<f32
 // Simple 2D noise function for procedural patterns
 fn noise2d(pos: vec2<f32>) -> f32 {
     let p = floor(pos);
-    let f = fract(pos);
+    let f = vec2<f32>(fract(pos.x), fract(pos.y));
     
     // Smooth interpolation
     let u = f * f * (3.0 - 2.0 * f);
@@ -364,7 +364,7 @@ fn noise2d(pos: vec2<f32>) -> f32 {
 
 // Hash function for noise generation
 fn hash22(p: vec2<f32>) -> f32 {
-    let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+    let p3 = vec3<f32>(fract(p.x * 0.1031), fract(p.y * 0.1031), fract(p.x * 0.1031));
     let p3_dot = dot(p3, vec3<f32>(p3.y + 33.33, p3.z + 33.33, p3.x + 33.33));
     return fract((p3.x + p3.y) * p3_dot);
 }
