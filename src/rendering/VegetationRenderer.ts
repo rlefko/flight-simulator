@@ -359,7 +359,13 @@ export class VegetationRenderer {
                 if (!allTreeInstances.has(speciesId)) {
                     allTreeInstances.set(speciesId, []);
                 }
-                allTreeInstances.get(speciesId)!.push(...instances.filter((i) => i.visible));
+                const visibleInstances = instances.filter((i) => i.visible);
+                const currentInstances = allTreeInstances.get(speciesId)!;
+                // Limit total instances to prevent stack overflow
+                const remainingSpace = Math.max(0, 2000 - currentInstances.length);
+                if (remainingSpace > 0) {
+                    currentInstances.push(...visibleInstances.slice(0, remainingSpace));
+                }
             }
 
             // Process grass batches
@@ -367,7 +373,13 @@ export class VegetationRenderer {
                 if (!allGrassInstances.has(speciesId)) {
                     allGrassInstances.set(speciesId, []);
                 }
-                allGrassInstances.get(speciesId)!.push(...instances.filter((i) => i.visible));
+                const visibleInstances = instances.filter((i) => i.visible);
+                const currentInstances = allGrassInstances.get(speciesId)!;
+                // Limit total instances to prevent stack overflow
+                const remainingSpace = Math.max(0, 1000 - currentInstances.length);
+                if (remainingSpace > 0) {
+                    currentInstances.push(...visibleInstances.slice(0, remainingSpace));
+                }
             }
         }
 

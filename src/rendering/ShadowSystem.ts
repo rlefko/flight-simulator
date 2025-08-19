@@ -230,12 +230,16 @@ export class ShadowSystem {
         this.cascades = [];
 
         for (let i = 0; i < this.shadowConfig.cascadeCount; i++) {
-            // Only create one texture per cascade for shadow mapping
+            // Create shadow map with only RENDER_ATTACHMENT usage for the shadow pass
+            // We'll create a separate view for texture binding to avoid conflicts
             const shadowMap = this.device.createTexture({
                 label: `Shadow Map Cascade ${i}`,
                 size: [this.shadowConfig.resolution, this.shadowConfig.resolution, 1],
                 format: 'depth32float',
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                usage:
+                    GPUTextureUsage.RENDER_ATTACHMENT |
+                    GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_SRC,
             });
 
             const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -254,7 +258,7 @@ export class ShadowSystem {
                 far: this.shadowConfig.cascadeDistances[i],
                 lightMatrix: new Matrix4(),
                 shadowMap,
-                depthTexture,
+                depthTexture: shadowMap, // Use the same texture for both
                 renderPassDescriptor,
             };
 
@@ -563,7 +567,7 @@ export class ShadowSystem {
 
         for (const cascade of this.cascades) {
             cascade.shadowMap.destroy();
-            cascade.depthTexture.destroy();
+            // depthTexture is the same as shadowMap, so don't destroy twice
         }
 
         this.cascades = [];

@@ -201,7 +201,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1500,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 200, // Reduced from 800 for performance
+            density: 20, // Drastically reduced for performance
             minHeight: 12,
             maxHeight: 25,
             canopyRadius: 8,
@@ -219,7 +219,7 @@ export class VegetationSystem {
             minElevation: 500,
             maxElevation: 3000,
             maxSlope: Math.PI / 4, // 45 degrees
-            density: 300, // Reduced from 1200 for performance
+            density: 30, // Drastically reduced for performance
             minHeight: 15,
             maxHeight: 35,
             canopyRadius: 5,
@@ -233,7 +233,7 @@ export class VegetationSystem {
             minElevation: -5,
             maxElevation: 50,
             maxSlope: Math.PI / 8, // 22.5 degrees
-            density: 100,
+            density: 10, // Reduced for performance
             minHeight: 8,
             maxHeight: 18,
             canopyRadius: 6,
@@ -247,7 +247,7 @@ export class VegetationSystem {
             minElevation: 200,
             maxElevation: 2000,
             maxSlope: Math.PI / 5, // 36 degrees
-            density: 600,
+            density: 40, // Drastically reduced for performance
             minHeight: 8,
             maxHeight: 20,
             canopyRadius: 4,
@@ -261,7 +261,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1000,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 50,
+            density: 5, // Reduced for performance
             minHeight: 2,
             maxHeight: 8,
             canopyRadius: 1,
@@ -273,7 +273,7 @@ export class VegetationSystem {
             id: 0,
             name: 'Temperate Grass',
             biomes: [BIOME_CONFIG.BIOMES.GRASSLAND.id, BIOME_CONFIG.BIOMES.FOREST.id],
-            density: 5000,
+            density: 100, // Drastically reduced for performance
             patchSize: 3,
             height: 0.3,
             color: [0.4, 0.7, 0.2],
@@ -283,7 +283,7 @@ export class VegetationSystem {
             id: 1,
             name: 'Tundra Grass',
             biomes: [BIOME_CONFIG.BIOMES.TUNDRA.id],
-            density: 3000,
+            density: 60, // Drastically reduced for performance
             patchSize: 2,
             height: 0.15,
             color: [0.5, 0.6, 0.3],
@@ -293,7 +293,7 @@ export class VegetationSystem {
             id: 2,
             name: 'Beach Grass',
             biomes: [BIOME_CONFIG.BIOMES.BEACH.id],
-            density: 2000,
+            density: 40, // Drastically reduced for performance
             patchSize: 1.5,
             height: 0.4,
             color: [0.6, 0.7, 0.4],
@@ -303,7 +303,7 @@ export class VegetationSystem {
             id: 3,
             name: 'Wetland Grass',
             biomes: [BIOME_CONFIG.BIOMES.WETLAND.id],
-            density: 4000,
+            density: 80, // Drastically reduced for performance
             patchSize: 2.5,
             height: 0.6,
             color: [0.3, 0.6, 0.3],

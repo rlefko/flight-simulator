@@ -8,7 +8,7 @@ import {
 } from './WorldConstants';
 import { TerrainTile, TerrainTileState } from './TerrainTile';
 import { TerrainStreaming, TilePriority } from './TerrainStreaming';
-import { HeightmapGenerator } from './HeightmapGenerator';
+import { PhotorealisticHeightmapGenerator } from './PhotorealisticHeightmapGenerator';
 
 /**
  * Camera frustum for culling calculations
@@ -124,7 +124,7 @@ class QuadTreeNode {
 export class TerrainGenerator {
     private config: TerrainConfig;
     private streaming: TerrainStreaming;
-    private heightmapGenerator: HeightmapGenerator;
+    private heightmapGenerator: PhotorealisticHeightmapGenerator;
 
     private quadTree: QuadTreeNode;
     private visibleNodes: QuadTreeNode[] = [];
@@ -160,7 +160,7 @@ export class TerrainGenerator {
             ...config,
         };
 
-        this.heightmapGenerator = new HeightmapGenerator(this.config.seed);
+        this.heightmapGenerator = new PhotorealisticHeightmapGenerator(this.config.seed);
         this.streaming = new TerrainStreaming(this.config.seed);
 
         // Initialize with a smaller grid for better performance
@@ -316,7 +316,7 @@ export class TerrainGenerator {
         this.errorThreshold = this.config.errorThreshold;
 
         if (config.seed !== undefined) {
-            this.heightmapGenerator = new HeightmapGenerator(config.seed);
+            this.heightmapGenerator = new PhotorealisticHeightmapGenerator(config.seed);
             this.streaming = new TerrainStreaming(config.seed);
             this.clearTerrain();
         }

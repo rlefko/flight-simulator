@@ -17,22 +17,34 @@ export class TerrainRenderer {
     private shadowPipeline: GPURenderPipeline | null = null;
     private meshCache: Map<string, TerrainMeshData> = new Map();
     private uniformBuffer: GPUBuffer;
-    private bindGroupLayout: GPUBindGroupLayout;
+    private uniformBindGroupLayout: GPUBindGroupLayout;
+    private shadowBindGroupLayout: GPUBindGroupLayout | null = null;
     private pipelineLayout: GPUPipelineLayout;
 
     constructor(device: GPUDevice) {
         this.device = device;
 
-        // Create bind group layout for terrain rendering
-        this.bindGroupLayout = device.createBindGroupLayout({
-            label: 'Terrain Bind Group Layout',
+        // Create bind group layout for terrain uniforms (group 0)
+        this.uniformBindGroupLayout = device.createBindGroupLayout({
+            label: 'Terrain Uniform Bind Group Layout',
             entries: [
                 {
                     binding: 0,
                     visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
-                // Shadow maps will be bound by shadow system
+            ],
+        });
+
+        // Create bind group layout for shadow resources (group 3)
+        this.shadowBindGroupLayout = device.createBindGroupLayout({
+            label: 'Shadow Bind Group Layout',
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'depth' },
+                },
                 {
                     binding: 1,
                     visibility: GPUShaderStage.FRAGMENT,
@@ -51,24 +63,31 @@ export class TerrainRenderer {
                 {
                     binding: 4,
                     visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: 'depth' },
-                },
-                {
-                    binding: 5,
-                    visibility: GPUShaderStage.FRAGMENT,
                     sampler: { type: 'comparison' },
                 },
                 {
-                    binding: 6,
+                    binding: 5,
                     visibility: GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
             ],
         });
 
+        // Create pipeline layout with all bind group layouts
+        // Note: We need placeholders for groups 1 and 2 to use group 3 for shadows
+        const emptyBindGroupLayout = device.createBindGroupLayout({
+            label: 'Empty Bind Group Layout',
+            entries: [],
+        });
+
         this.pipelineLayout = device.createPipelineLayout({
             label: 'Terrain Pipeline Layout',
-            bindGroupLayouts: [this.bindGroupLayout],
+            bindGroupLayouts: [
+                this.uniformBindGroupLayout, // Group 0: uniforms
+                emptyBindGroupLayout, // Group 1: unused (placeholder)
+                emptyBindGroupLayout, // Group 2: unused (placeholder)
+                this.shadowBindGroupLayout, // Group 3: shadows
+            ],
         });
 
         // Create uniform buffer for matrices
@@ -250,12 +269,14 @@ export class TerrainRenderer {
             };
             
             @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-            @group(0) @binding(1) var shadowMap0: texture_depth_2d;
-            @group(0) @binding(2) var shadowMap1: texture_depth_2d;
-            @group(0) @binding(3) var shadowMap2: texture_depth_2d;
-            @group(0) @binding(4) var shadowMap3: texture_depth_2d;
-            @group(0) @binding(5) var shadowSampler: sampler_comparison;
-            @group(0) @binding(6) var<uniform> shadowUniforms: ShadowUniforms;
+            
+            // Shadow resources in separate bind group to avoid conflicts
+            @group(3) @binding(0) var shadowMap0: texture_depth_2d;
+            @group(3) @binding(1) var shadowMap1: texture_depth_2d;
+            @group(3) @binding(2) var shadowMap2: texture_depth_2d;
+            @group(3) @binding(3) var shadowMap3: texture_depth_2d;
+            @group(3) @binding(4) var shadowSampler: sampler_comparison;
+            @group(3) @binding(5) var<uniform> shadowUniforms: ShadowUniforms;
             
             struct VertexInput {
                 @location(0) position: vec3<f32>,
@@ -674,7 +695,7 @@ export class TerrainRenderer {
 
         return this.device.createBindGroup({
             label: `Terrain Bind Group ${tileId}`,
-            layout: this.bindGroupLayout,
+            layout: this.uniformBindGroupLayout,
             entries,
         });
     }

@@ -7,7 +7,7 @@ import {
     getMeshResolutionForLOD,
 } from './WorldConstants';
 import { TerrainTile, TerrainTileState, type TerrainData } from './TerrainTile';
-import { HeightmapGenerator } from './HeightmapGenerator';
+import { PhotorealisticHeightmapGenerator } from './PhotorealisticHeightmapGenerator';
 import { TerrainMesh } from './TerrainMesh';
 
 /**
@@ -82,7 +82,7 @@ export class TerrainStreaming {
 
     private workers: Worker[] = [];
     private workerQueue: (() => void)[] = [];
-    private heightmapGenerator: HeightmapGenerator;
+    private heightmapGenerator: PhotorealisticHeightmapGenerator;
 
     private stats: StreamingStats = {
         tilesInMemory: 0,
@@ -102,7 +102,7 @@ export class TerrainStreaming {
     private frameCount: number = 0;
 
     constructor(seed: number = 12345) {
-        this.heightmapGenerator = new HeightmapGenerator(seed);
+        this.heightmapGenerator = new PhotorealisticHeightmapGenerator(seed);
         this.initializeWorkers();
         this.startFrameTimer();
     }

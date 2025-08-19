@@ -12,7 +12,7 @@ export * from './WorldConstants';
 // Terrain system components
 export * from './TerrainTile';
 export * from './TerrainGenerator';
-export * from './HeightmapGenerator';
+export * from './PhotorealisticHeightmapGenerator';
 export * from './TerrainMesh';
 export * from './TerrainStreaming';
 

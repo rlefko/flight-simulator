@@ -161,6 +161,10 @@ export class PerformanceOptimizer {
      * Reduce quality settings to improve performance
      */
     private reduceQuality(): void {
+        // Calculate average FPS from frame history
+        const avgFrameTime =
+            this.frameHistory.reduce((a, b) => a + b, 0) / this.frameHistory.length;
+        const avgFPS = 1000 / avgFrameTime;
         const reductionFactor = 0.85; // Reduce by 15%
 
         // Prioritize reductions by performance impact
