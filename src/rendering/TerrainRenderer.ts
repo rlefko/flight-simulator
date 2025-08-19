@@ -19,6 +19,7 @@ export class TerrainRenderer {
     private uniformBuffer: GPUBuffer;
     private uniformBindGroupLayout: GPUBindGroupLayout;
     private shadowBindGroupLayout: GPUBindGroupLayout | null = null;
+    private shadowBindGroup: GPUBindGroup | null = null;
     private pipelineLayout: GPUPipelineLayout;
 
     constructor(device: GPUDevice) {
@@ -133,9 +134,15 @@ export class TerrainRenderer {
             `,
         });
 
+        // Create a separate pipeline layout for shadow pass (only needs uniform bind group)
+        const shadowPipelineLayout = this.device.createPipelineLayout({
+            label: 'Shadow Pipeline Layout',
+            bindGroupLayouts: [this.uniformBindGroupLayout], // Only group 0
+        });
+
         this.shadowPipeline = this.device.createRenderPipeline({
             label: 'Terrain Shadow Pipeline',
-            layout: this.pipelineLayout,
+            layout: shadowPipelineLayout,
             vertex: {
                 module: shadowShaderModule,
                 entryPoint: 'vs_shadow',
@@ -577,6 +584,15 @@ export class TerrainRenderer {
 
         renderPass.setPipeline(pipelineToUse);
 
+        // Create and set shadow bind group if we have a shadow system (for main pass only)
+        if (!isShadowPass && shadowSystem && this.shadowBindGroupLayout) {
+            if (!this.shadowBindGroup) {
+                this.shadowBindGroup = this.createShadowBindGroup(shadowSystem);
+            }
+            // Set shadow bind group for all tiles (group 3)
+            renderPass.setBindGroup(3, this.shadowBindGroup);
+        }
+
         const viewMatrix = camera.getViewMatrix();
         const projectionMatrix = camera.getProjectionMatrix();
         const cameraPosition = camera.getPosition();
@@ -592,14 +608,8 @@ export class TerrainRenderer {
                 continue;
             }
 
-            // Update bind group if we have shadow system
-            if (shadowSystem) {
-                meshData.bindGroup = this.createTerrainBindGroup(
-                    tile.id,
-                    meshData.uniformBuffer,
-                    shadowSystem
-                );
-            }
+            // No need to update bind group for shadow system anymore
+            // Shadow resources are in a separate bind group (group 3)
 
             // Create model matrix for this tile
             const modelMatrix = new Matrix4();
@@ -639,63 +649,55 @@ export class TerrainRenderer {
     /**
      * Create bind group for terrain with shadow support
      */
-    private createTerrainBindGroup(
-        tileId: string,
-        uniformBuffer: GPUBuffer,
-        shadowSystem?: ShadowSystem
-    ): GPUBindGroup {
-        const entries: GPUBindGroupEntry[] = [
-            {
-                binding: 0,
-                resource: { buffer: uniformBuffer },
-            },
-        ];
-
-        if (shadowSystem) {
-            const shadowMaps = shadowSystem.getShadowMaps();
-            const shadowSampler = shadowSystem.getShadowSampler();
-            const shadowUniforms = this.createShadowUniformBuffer(shadowSystem);
-
-            // Add shadow map textures
-            for (let i = 0; i < 4; i++) {
-                entries.push({
-                    binding: i + 1,
-                    resource:
-                        shadowMaps[i]?.createView() || this.createDummyDepthTexture().createView(),
-                });
-            }
-
-            // Add shadow sampler
-            entries.push({
-                binding: 5,
-                resource: shadowSampler,
-            });
-
-            // Add shadow uniforms
-            entries.push({
-                binding: 6,
-                resource: { buffer: shadowUniforms },
-            });
-        } else {
-            // Add dummy resources for shadow bindings
-            const dummyTexture = this.createDummyDepthTexture();
-            const dummySampler = this.createDummySampler();
-            const dummyBuffer = this.createDummyUniformBuffer();
-
-            for (let i = 1; i <= 4; i++) {
-                entries.push({
-                    binding: i,
-                    resource: dummyTexture.createView(),
-                });
-            }
-
-            entries.push({ binding: 5, resource: dummySampler });
-            entries.push({ binding: 6, resource: { buffer: dummyBuffer } });
-        }
-
+    private createTerrainBindGroup(tileId: string, uniformBuffer: GPUBuffer): GPUBindGroup {
+        // Only create uniform bind group (group 0) with the uniform buffer
+        // Shadow resources will be in a separate bind group (group 3)
         return this.device.createBindGroup({
             label: `Terrain Bind Group ${tileId}`,
             layout: this.uniformBindGroupLayout,
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: uniformBuffer },
+                },
+            ],
+        });
+    }
+
+    /**
+     * Create shadow bind group (group 3)
+     */
+    private createShadowBindGroup(shadowSystem: ShadowSystem): GPUBindGroup {
+        const shadowMaps = shadowSystem.getShadowMaps();
+        const shadowSampler = shadowSystem.getShadowSampler();
+        const shadowUniforms = this.createShadowUniformBuffer(shadowSystem);
+
+        const entries: GPUBindGroupEntry[] = [];
+
+        // Add shadow map textures (bindings 0-3)
+        for (let i = 0; i < 4; i++) {
+            entries.push({
+                binding: i,
+                resource:
+                    shadowMaps[i]?.createView() || this.createDummyDepthTexture().createView(),
+            });
+        }
+
+        // Add shadow sampler (binding 4)
+        entries.push({
+            binding: 4,
+            resource: shadowSampler,
+        });
+
+        // Add shadow uniforms (binding 5)
+        entries.push({
+            binding: 5,
+            resource: { buffer: shadowUniforms },
+        });
+
+        return this.device.createBindGroup({
+            label: 'Shadow Bind Group',
+            layout: this.shadowBindGroupLayout!,
             entries,
         });
     }

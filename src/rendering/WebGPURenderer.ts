@@ -86,6 +86,12 @@ export class WebGPURenderer {
     private terrainTiles: TerrainTile[] = [];
     private vegetationPlacements: Map<string, VegetationPlacement> = new Map();
 
+    // MSAA textures for anti-aliasing
+    private msaaTexture: GPUTexture | null = null;
+    private msaaTextureView: GPUTextureView | null = null;
+    private msaaDepthTexture: GPUTexture | null = null;
+    private msaaDepthTextureView: GPUTextureView | null = null;
+
     // Advanced rendering systems
     private shadowSystem: ShadowSystem | null = null;
     private waterRenderer: WaterRenderer | null = null;
@@ -314,6 +320,9 @@ export class WebGPURenderer {
         // Create depth texture for 3D rendering
         this.createDepthTexture();
 
+        // Create MSAA textures for anti-aliasing
+        this.createMSAATextures();
+
         // Create test triangle for debugging
         this.createTestTriangle();
     }
@@ -484,13 +493,14 @@ export class WebGPURenderer {
                         this.createTestTriangle();
                     }
 
-                    // Ensure depth texture matches canvas size
+                    // Ensure depth texture and MSAA textures match canvas size
                     if (
                         !this.depthTexture ||
                         this.depthTexture.width !== surfaceTexture.width ||
                         this.depthTexture.height !== surfaceTexture.height
                     ) {
                         this.createDepthTexture();
+                        this.createMSAATextures();
                     }
 
                     // Render shadow maps in a SEPARATE command encoder to avoid usage conflicts
@@ -571,19 +581,26 @@ export class WebGPURenderer {
                     }
 
                     // NOW begin the main render pass after all pre-passes are complete
+                    // Use MSAA if available for anti-aliasing
+                    const usesMSAA = this.qualitySettings.msaaSamples > 1 && this.msaaTextureView;
                     const renderPass = commandEncoder.beginRenderPass({
                         label: 'Main Render Pass',
                         colorAttachments: [
                             {
-                                view: textureView,
+                                view: usesMSAA ? this.msaaTextureView! : textureView,
+                                resolveTarget: usesMSAA ? textureView : undefined,
                                 clearValue: { r: 0.5, g: 0.7, b: 0.9, a: 1.0 }, // Sky blue color
                                 loadOp: 'clear',
                                 storeOp: 'store',
                             },
                         ],
-                        depthStencilAttachment: this.depthTextureView
+                        depthStencilAttachment: (
+                            usesMSAA ? this.msaaDepthTextureView : this.depthTextureView
+                        )
                             ? {
-                                  view: this.depthTextureView,
+                                  view: usesMSAA
+                                      ? this.msaaDepthTextureView!
+                                      : this.depthTextureView!,
                                   depthClearValue: 1.0,
                                   depthLoadOp: 'clear',
                                   depthStoreOp: 'store',
@@ -883,6 +900,54 @@ export class WebGPURenderer {
         });
 
         this.depthTextureView = this.depthTexture.createView();
+    }
+
+    /**
+     * Create MSAA textures for anti-aliasing
+     */
+    private createMSAATextures(): void {
+        if (!this.device || !this.canvas) return;
+
+        const sampleCount = this.qualitySettings.msaaSamples;
+
+        // Only create MSAA textures if sample count > 1
+        if (sampleCount <= 1) {
+            this.msaaTexture = null;
+            this.msaaTextureView = null;
+            this.msaaDepthTexture = null;
+            this.msaaDepthTextureView = null;
+            return;
+        }
+
+        // Destroy old MSAA textures if they exist
+        if (this.msaaTexture) {
+            this.msaaTexture.destroy();
+        }
+        if (this.msaaDepthTexture) {
+            this.msaaDepthTexture.destroy();
+        }
+
+        // Create MSAA color texture
+        this.msaaTexture = this.device.createTexture({
+            size: [this.canvas.width, this.canvas.height],
+            format: this.colorFormat,
+            sampleCount,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        this.msaaTextureView = this.msaaTexture.createView();
+
+        // Create MSAA depth texture
+        this.msaaDepthTexture = this.device.createTexture({
+            size: [this.canvas.width, this.canvas.height],
+            format: 'depth24plus',
+            sampleCount,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        this.msaaDepthTextureView = this.msaaDepthTexture.createView();
+
+        console.log(`MSAA textures created with ${sampleCount}x sampling`);
     }
 
     public setTerrainTiles(tiles: TerrainTile[]): void {

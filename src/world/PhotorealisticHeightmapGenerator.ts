@@ -114,26 +114,26 @@ export class PhotorealisticHeightmapGenerator {
                 const z = worldZ + i * step;
                 const index = i * size + j;
 
-                // Layer 1: Continental shelf (very large scale)
-                const continental = this.fbm(x * 0.00001, z * 0.00001, 4, 2.0, 0.5) * 600;
+                // Layer 1: Continental shelf (very large scale) - INCREASED for visible continents
+                const continental = this.fbm(x * 0.000008, z * 0.000008, 4, 2.0, 0.5) * 1500;
 
-                // Layer 2: Mountain ranges (medium scale)
-                const mountains = this.ridgedNoise(x * 0.00005, z * 0.00005, 3) * 400;
+                // Layer 2: Mountain ranges (medium scale) - INCREASED for tall peaks
+                const mountains = this.ridgedNoise(x * 0.00003, z * 0.00003, 4) * 2500;
 
-                // Layer 3: Hills and valleys (smaller scale)
-                const hills = this.fbm(x * 0.0002, z * 0.0002, 4, 2.2, 0.45) * 150;
+                // Layer 3: Hills and valleys (smaller scale) - INCREASED for visible features
+                const hills = this.fbm(x * 0.0001, z * 0.0001, 4, 2.2, 0.45) * 500;
 
-                // Layer 4: Small details
-                const details = this.fbm(x * 0.001, z * 0.001, 2, 2.0, 0.5) * 30;
+                // Layer 4: Small details - INCREASED for better surface variation
+                const details = this.fbm(x * 0.0005, z * 0.0005, 3, 2.0, 0.5) * 100;
 
-                // Combine layers with proper weighting
-                let elevation = continental * 0.4 + mountains * 0.3 + hills * 0.2 + details * 0.1;
+                // Combine layers with proper weighting for dramatic terrain
+                let elevation = continental * 0.3 + mountains * 0.4 + hills * 0.2 + details * 0.1;
 
                 // Apply a curve to create more interesting terrain distribution
                 elevation = this.terrainCurve(elevation);
 
-                // Clamp to reasonable values
-                elevation = Math.max(-200, Math.min(2000, elevation));
+                // Clamp to reasonable values - INCREASED for taller mountains
+                elevation = Math.max(-500, Math.min(3500, elevation));
 
                 heightmap[index] = elevation;
             }
@@ -223,21 +223,21 @@ export class PhotorealisticHeightmapGenerator {
      * Apply terrain curve for more realistic elevation distribution
      */
     private terrainCurve(elevation: number): number {
-        // Create more flat areas at sea level and gentle slopes
-        const normalized = elevation / 1000; // Normalize to roughly -1 to 1
+        // Create more dramatic elevation changes for visibility
+        const normalized = elevation / 2000; // Normalize to roughly -1 to 1
 
         if (normalized < -0.1) {
-            // Deep ocean
-            return elevation * 0.5;
-        } else if (normalized < 0.1) {
-            // Coastal areas and plains
-            return elevation * 0.3;
-        } else if (normalized < 0.5) {
-            // Hills
-            return elevation * 0.7;
+            // Deep ocean - keep deeper
+            return elevation * 0.8;
+        } else if (normalized < 0.05) {
+            // Coastal areas and plains - keep flatter near sea level
+            return elevation * 0.4;
+        } else if (normalized < 0.3) {
+            // Hills - more pronounced
+            return elevation * 1.2;
         } else {
-            // Mountains
-            return elevation;
+            // Mountains - much taller for visibility
+            return elevation * 1.5 + 200; // Add base height to mountains
         }
     }
 
@@ -363,7 +363,17 @@ export class PhotorealisticHeightmapGenerator {
                 const slope = slopes[index];
 
                 // Determine biome based on elevation and slope
-                if (elevation < 0) {
+                // Check if already marked as water from rivers/lakes
+                if (waterMask[index] > 0) {
+                    // Water body (ocean, lake, or river)
+                    if (elevation < 0) {
+                        materials[index] = 0; // Ocean
+                    } else if (elevation < 300) {
+                        materials[index] = 11; // River
+                    } else {
+                        materials[index] = 10; // Lake
+                    }
+                } else if (elevation < 0) {
                     // Ocean
                     materials[index] = 0;
                     waterMask[index] = 255;

@@ -1,6 +1,7 @@
 import { Vector3 } from '../core/math';
 import { BIOME_CONFIG, SCENERY_CONFIG, TERRAIN_CONFIG } from './WorldConstants';
 import type { TerrainTile } from './TerrainTile';
+import { VegetationGenerator, VegetationType } from './VegetationGenerator';
 
 /**
  * Tree species with their biome preferences and characteristics
@@ -182,10 +183,12 @@ export class VegetationSystem {
     private placements: Map<string, VegetationPlacement> = new Map();
     private seed: number;
     private random: () => number;
+    private vegetationGenerator: VegetationGenerator;
 
     constructor(seed: number = 12345) {
         this.seed = seed;
         this.random = this.createSeededRandom(seed);
+        this.vegetationGenerator = new VegetationGenerator(seed);
         this.initializeSpecies();
     }
 
