@@ -204,7 +204,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1500,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 50, // Moderate density for performance
+            density: 150, // Increased density for more visible trees
             minHeight: 12,
             maxHeight: 25,
             canopyRadius: 8,
@@ -222,7 +222,7 @@ export class VegetationSystem {
             minElevation: 500,
             maxElevation: 3000,
             maxSlope: Math.PI / 4, // 45 degrees
-            density: 40, // Moderate density for performance
+            density: 120, // Increased density for more visible trees
             minHeight: 15,
             maxHeight: 35,
             canopyRadius: 5,
@@ -236,7 +236,7 @@ export class VegetationSystem {
             minElevation: -5,
             maxElevation: 50,
             maxSlope: Math.PI / 8, // 22.5 degrees
-            density: 25, // Moderate density for performance
+            density: 80, // Increased density for more visible trees
             minHeight: 8,
             maxHeight: 18,
             canopyRadius: 6,
@@ -250,7 +250,7 @@ export class VegetationSystem {
             minElevation: 200,
             maxElevation: 2000,
             maxSlope: Math.PI / 5, // 36 degrees
-            density: 30, // Moderate density for performance
+            density: 100, // Increased density for more visible trees
             minHeight: 8,
             maxHeight: 20,
             canopyRadius: 4,
@@ -264,7 +264,7 @@ export class VegetationSystem {
             minElevation: 0,
             maxElevation: 1000,
             maxSlope: Math.PI / 6, // 30 degrees
-            density: 10, // Moderate density for performance
+            density: 30, // Increased density for more visible cacti
             minHeight: 2,
             maxHeight: 8,
             canopyRadius: 1,
@@ -415,7 +415,7 @@ export class VegetationSystem {
             // Calculate approximate number of trees for this species
             const tileAreaKm2 = (tile.size / 1000) ** 2;
             const baseTreeCount = species.density * tileAreaKm2;
-            const treeCount = Math.max(1, Math.round(baseTreeCount * (0.5 + this.random() * 0.5)));
+            const treeCount = Math.max(2, Math.round(baseTreeCount * (0.8 + this.random() * 0.4)));
 
             // Use Poisson disk sampling for natural distribution
             const minDistance = Math.sqrt(1000000 / species.density) * 0.5; // Approximate spacing
@@ -445,11 +445,12 @@ export class VegetationSystem {
 
                 // Check if this location is suitable for this tree species
                 if (this.isValidTreeLocation(species, terrainData)) {
-                    // Use forest density for natural clustering
+                    // Use forest density for natural clustering - reduced threshold for more trees
                     const forestDensity = this.getForestDensity(worldX, worldZ, terrainData.biome);
                     const placementRandom = this.seededRandom(worldX, worldZ, this.seed + 1000);
 
-                    if (placementRandom > forestDensity) continue;
+                    // Increased chance of tree placement
+                    if (placementRandom > forestDensity * 0.7) continue;
 
                     const instance = this.createTreeInstance(
                         speciesId,

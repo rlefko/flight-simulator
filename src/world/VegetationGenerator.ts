@@ -83,7 +83,7 @@ export class VegetationGenerator {
                 maxHeight: 25,
                 minRadius: 3,
                 maxRadius: 6,
-                density: 50,
+                density: 150,
                 clusterProbability: 0.7,
                 color: [0.2, 0.4, 0.1],
             },
@@ -93,7 +93,7 @@ export class VegetationGenerator {
                 maxHeight: 20,
                 minRadius: 2,
                 maxRadius: 4,
-                density: 30,
+                density: 100,
                 clusterProbability: 0.5,
                 color: [0.3, 0.5, 0.2],
             },
@@ -107,7 +107,7 @@ export class VegetationGenerator {
                 maxHeight: 18,
                 minRadius: 3,
                 maxRadius: 5,
-                density: 5,
+                density: 15,
                 clusterProbability: 0.3,
                 color: [0.2, 0.4, 0.1],
             },
@@ -121,7 +121,7 @@ export class VegetationGenerator {
                 maxHeight: 30,
                 minRadius: 2,
                 maxRadius: 4,
-                density: 20,
+                density: 80,
                 clusterProbability: 0.6,
                 color: [0.1, 0.3, 0.1],
             },
@@ -135,7 +135,7 @@ export class VegetationGenerator {
                 maxHeight: 15,
                 minRadius: 1,
                 maxRadius: 2,
-                density: 3,
+                density: 12,
                 clusterProbability: 0.4,
                 color: [0.3, 0.4, 0.2],
             },
@@ -149,7 +149,7 @@ export class VegetationGenerator {
                 maxHeight: 5,
                 minRadius: 0.5,
                 maxRadius: 1,
-                density: 2,
+                density: 8,
                 clusterProbability: 0.1,
                 color: [0.3, 0.5, 0.2],
             },
@@ -178,7 +178,7 @@ export class VegetationGenerator {
             for (const config of configs) {
                 // Calculate approximate tree count based on density and tile area
                 const tileAreaKm2 = (tileSize / 1000) ** 2;
-                const targetTreeCount = Math.round(config.density * tileAreaKm2 * 0.01); // Reduced density
+                const targetTreeCount = Math.round(config.density * tileAreaKm2 * 0.05); // Increased density
 
                 if (targetTreeCount === 0) continue;
 
@@ -670,7 +670,7 @@ export class VegetationGenerator {
         // Apply biome-specific clustering patterns
         switch (biomeId) {
             case 3: // Forest biome - dense with clearings
-                density = Math.max(0.3, density); // Minimum 30% forest coverage
+                density = Math.max(0.5, density); // Minimum 50% forest coverage
                 // Add natural clearings using additional noise
                 const clearingNoise = this.fractalNoise(worldX * 0.001, worldZ * 0.001, 2);
                 if (clearingNoise < -0.4) {
@@ -679,7 +679,7 @@ export class VegetationGenerator {
                 break;
 
             case 2: // Grassland - scattered trees in groups
-                density *= 0.15;
+                density *= 0.25;
                 // Create tree groves using clustered noise
                 const groveNoise = this.fractalNoise(worldX * 0.002, worldZ * 0.002, 3);
                 if (groveNoise > 0.3) {
@@ -688,7 +688,7 @@ export class VegetationGenerator {
                 break;
 
             case 5: // Mountain - elevation and slope dependent
-                density *= 0.4;
+                density *= 0.6;
                 // Simulate treeline effects (less dense at higher altitudes)
                 const elevationFactor = Math.max(0, 1.0 - worldZ * 0.0001); // Rough elevation proxy
                 density *= elevationFactor;
@@ -704,7 +704,7 @@ export class VegetationGenerator {
                 break;
 
             case 1: // Beach - sparse coastal vegetation
-                density *= 0.08;
+                density *= 0.15;
                 // Denser vegetation away from water
                 const coastalNoise = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 2);
                 density *= 0.5 + coastalNoise * 0.5;

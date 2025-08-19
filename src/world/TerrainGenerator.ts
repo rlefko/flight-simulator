@@ -150,7 +150,7 @@ export class TerrainGenerator {
 
     constructor(config: Partial<TerrainConfig> = {}) {
         this.config = {
-            seed: 12345,
+            seed: 54321, // Changed seed to force regeneration with new natural algorithms
             maxLODLevels: 3, // Limit to 3 levels to prevent infinite subdivision
             viewDistance: LOD_CONFIG.CULL_DISTANCE,
             errorThreshold: 1.0,

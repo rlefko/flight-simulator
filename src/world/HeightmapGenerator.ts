@@ -973,60 +973,91 @@ export class HeightmapGenerator {
     }
 
     /**
-     * Enhanced continental shelf effects for realistic landmasses
+     * Enhanced continental shelf effects for realistic landmasses - no geometric patterns
      */
     private getEnhancedContinentalFactor(x: number, z: number): number {
-        // Multiple continental centers for more interesting landmasses
-        const continents = [
-            { x: 0, z: 0, size: 800000, strength: 1.0 },
-            { x: 500000, z: 300000, size: 600000, strength: 0.8 },
-            { x: -400000, z: -200000, size: 500000, strength: 0.7 },
-        ];
+        // Use natural fractal noise instead of geometric continental centers
+        // This eliminates the hexagonal island patterns
 
-        let maxFactor = 0;
-        for (const continent of continents) {
-            const distance = Math.sqrt(
-                (x - continent.x) * (x - continent.x) + (z - continent.z) * (z - continent.z)
-            );
+        // Large-scale continental distribution using multiple octaves of FBM
+        const largeScale = this.fractalBrownianMotion(x * 0.000002, z * 0.000002, 6);
+        const mediumScale = this.fractalBrownianMotion(x * 0.000008, z * 0.000008, 4);
+        const smallScale = this.fractalBrownianMotion(x * 0.00002, z * 0.00002, 3);
 
-            // Smooth falloff with shelf break
-            const shelfBreak = continent.size * 0.7;
-            const deepOcean = continent.size * 1.2;
+        // Combine scales for natural landmass distribution
+        const continentalNoise = largeScale * 0.6 + mediumScale * 0.3 + smallScale * 0.1;
 
-            let factor;
-            if (distance < shelfBreak) {
-                // Continental shelf - gradual descent
-                factor = continent.strength * (1 - (distance / shelfBreak) * 0.3);
-            } else if (distance < deepOcean) {
-                // Continental slope - steeper descent
-                const t = (distance - shelfBreak) / (deepOcean - shelfBreak);
-                factor = continent.strength * (0.7 - t * 0.9); // Down to -0.2 for ocean depths
-            } else {
-                // Abyssal plains
-                factor = -0.2;
-            }
+        // Apply natural sea level adjustment
+        const seaLevelBias = -0.15; // Favor ocean areas for realism
+        const adjustedNoise = continentalNoise + seaLevelBias;
 
-            maxFactor = Math.max(maxFactor, factor);
+        // Create natural elevation distribution
+        if (adjustedNoise < 0) {
+            // Ocean depths with realistic falloff
+            return Math.max(-0.8, adjustedNoise * 0.9);
+        } else {
+            // Land elevations with exponential distribution for realistic terrain
+            return Math.min(0.9, Math.pow(adjustedNoise, 0.8) * 1.1);
         }
-
-        const result = Math.max(-0.3, Math.min(0.8, maxFactor)); // Reduce extreme values
-        return isFinite(result) ? result : 0;
     }
 
     /**
-     * Generate mountain ridges using ridge noise
+     * Generate mountain ridges using natural fractal ridge noise
      */
     private generateMountainRidges(x: number, z: number): number {
-        // Create multiple ridge systems with different orientations
-        const ridge1 = this.createRidgeSystem(x, z, { x: 1, z: 0.3 }, 0.0003, 800);
-        const ridge2 = this.createRidgeSystem(x, z, { x: 0.2, z: 1 }, 0.0002, 600);
-        const ridge3 = this.createRidgeSystem(x, z, { x: -0.7, z: 0.7 }, 0.0004, 400);
+        // Create multiple natural ridge systems with varying orientations
+        const ridge1 = this.createNaturalRidgeSystem(x, z, 0.0002, 30, 400);
+        const ridge2 = this.createNaturalRidgeSystem(x, z, 0.00015, 75, 300);
+        const ridge3 = this.createNaturalRidgeSystem(x, z, 0.0003, 120, 200);
 
         return Math.max(ridge1, ridge2, ridge3);
     }
 
     /**
-     * Create a single ridge system
+     * Create a natural ridge system with realistic geological features
+     */
+    private createNaturalRidgeSystem(
+        x: number,
+        z: number,
+        frequency: number,
+        rotation: number,
+        amplitude: number
+    ): number {
+        // Rotate coordinates for ridge orientation
+        const rad = (rotation * Math.PI) / 180;
+        const rotX = x * Math.cos(rad) - z * Math.sin(rad);
+        const rotZ = x * Math.sin(rad) + z * Math.cos(rad);
+
+        // Multiple scales of ridge noise for natural appearance
+        const primaryRidge = Math.abs(this.perlinNoise(rotX * frequency * 0.3, rotZ * frequency));
+        const secondaryRidge = Math.abs(
+            this.perlinNoise(rotX * frequency * 0.8, rotZ * frequency * 1.2)
+        );
+        const detailRidge = Math.abs(
+            this.perlinNoise(rotX * frequency * 2.0, rotZ * frequency * 2.5)
+        );
+
+        // Combine ridge scales
+        const combinedRidge = primaryRidge * 0.6 + secondaryRidge * 0.3 + detailRidge * 0.1;
+        const ridge = Math.pow(1 - combinedRidge, 1.5); // Natural ridge profile
+
+        // Natural width variation along ridge
+        const widthVariation = this.fractalBrownianMotion(
+            rotZ * frequency * 0.05,
+            rotX * frequency * 0.02,
+            3
+        );
+        const width = Math.max(0.2, 0.7 + widthVariation * 0.5);
+
+        // Elevation variation along ridge length
+        const elevationVariation = this.fractalBrownianMotion(rotZ * frequency * 0.03, 0, 2);
+        const elevation = Math.max(0.3, 0.8 + elevationVariation * 0.4);
+
+        return ridge * width * elevation * amplitude;
+    }
+
+    /**
+     * Legacy ridge system method - replaced by natural version
      */
     private createRidgeSystem(
         x: number,
@@ -1035,43 +1066,74 @@ export class HeightmapGenerator {
         frequency: number,
         amplitude: number
     ): number {
-        // Normalize direction
-        const len = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
-        const dx = direction.x / len;
-        const dz = direction.z / len;
-
-        // Project coordinates onto ridge direction
-        const parallel = x * dx + z * dz;
-        const perpendicular = x * dz - z * dx;
-
-        // Ridge noise - absolute value creates ridges
-        const ridgeNoise = Math.abs(
-            this.perlinNoise(perpendicular * frequency, parallel * frequency * 0.3)
-        );
-        const ridge = Math.pow(1 - ridgeNoise, 2); // Sharpen ridges
-
-        // Modulate along ridge length
-        const lengthModulation = 0.5 + 0.5 * this.perlinNoise(parallel * frequency * 0.1, 0);
-
-        return ridge * amplitude * lengthModulation;
+        // Convert direction to rotation angle and delegate to natural method
+        const rotation = (Math.atan2(direction.z, direction.x) * 180) / Math.PI;
+        return this.createNaturalRidgeSystem(x, z, frequency, rotation, amplitude);
     }
 
     /**
-     * Generate valley carving algorithms
+     * Generate natural valley networks with realistic drainage patterns
      */
     private generateValleys(x: number, z: number): number {
-        // Use turbulence to create valley networks
-        const valleyNoise = this.turbulence(x * 0.0001, z * 0.0001, 3);
+        // Create multiple valley systems with natural drainage patterns
+        const mainValley = this.carveNaturalValley(x, z, 0.00015, 45, -100);
+        const tributaryValley1 = this.carveNaturalValley(x, z, 0.0003, 90, -60);
+        const tributaryValley2 = this.carveNaturalValley(x, z, 0.0004, 0, -40);
 
-        // Create valley floors by inverting peaks
-        const valley1 = this.carveValley(x, z, { x: 0.8, z: 0.6 }, 0.0002, -200);
-        const valley2 = this.carveValley(x, z, { x: -0.4, z: 0.9 }, 0.00015, -150);
+        // Natural valley network modulation
+        const networkNoise = this.fractalBrownianMotion(x * 0.00008, z * 0.00008, 3);
+        const networkStrength = Math.max(0.3, 0.8 + networkNoise * 0.5);
 
-        return Math.min(valley1, valley2) * valleyNoise;
+        return Math.min(mainValley, tributaryValley1, tributaryValley2) * networkStrength;
     }
 
     /**
-     * Carve individual valleys
+     * Carve natural valleys with realistic meandering and depth variation
+     */
+    private carveNaturalValley(
+        x: number,
+        z: number,
+        frequency: number,
+        rotation: number,
+        depth: number
+    ): number {
+        // Rotate coordinates for valley orientation
+        const rad = (rotation * Math.PI) / 180;
+        const rotX = x * Math.cos(rad) - z * Math.sin(rad);
+        const rotZ = x * Math.sin(rad) + z * Math.cos(rad);
+
+        // Natural meandering using multiple scales
+        const meander1 = this.perlinNoise(rotZ * frequency * 0.02, 0) * 400;
+        const meander2 = this.perlinNoise(rotZ * frequency * 0.08, 0) * 100;
+        const meander3 = this.perlinNoise(rotZ * frequency * 0.2, 0) * 30;
+        const totalMeander = meander1 + meander2 + meander3;
+
+        // Apply meander to valley position
+        const meanderX = rotX + totalMeander;
+
+        // Multi-scale valley profile for natural appearance
+        const primaryProfile = Math.abs(
+            this.perlinNoise(meanderX * frequency * 0.4, rotZ * frequency * 0.1)
+        );
+        const secondaryProfile = Math.abs(
+            this.perlinNoise(meanderX * frequency * 1.2, rotZ * frequency * 0.3)
+        );
+
+        const combinedProfile = primaryProfile * 0.7 + secondaryProfile * 0.3;
+        const valley = Math.pow(1 - combinedProfile, 0.8); // Natural U-shaped valley
+
+        // Variable valley width and depth
+        const widthVariation = this.fractalBrownianMotion(rotZ * frequency * 0.03, 0, 2);
+        const width = Math.max(0.2, 0.6 + widthVariation * 0.4);
+
+        const depthVariation = this.fractalBrownianMotion(rotZ * frequency * 0.025, 0, 3);
+        const variableDepth = Math.max(0.4, 0.8 + depthVariation * 0.6);
+
+        return Math.min(0, valley * width * variableDepth * depth);
+    }
+
+    /**
+     * Legacy valley carving method - replaced by natural version
      */
     private carveValley(
         x: number,
@@ -1080,26 +1142,9 @@ export class HeightmapGenerator {
         frequency: number,
         depth: number
     ): number {
-        // Normalize direction
-        const len = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
-        const dx = direction.x / len;
-        const dz = direction.z / len;
-
-        // Project coordinates
-        const parallel = x * dx + z * dz;
-        const perpendicular = x * dz - z * dx;
-
-        // Valley profile - inverted ridge
-        const valleyProfile = Math.abs(
-            this.perlinNoise(perpendicular * frequency, parallel * frequency * 0.5)
-        );
-        const valley = Math.pow(valleyProfile, 0.5); // Smoother valley sides
-
-        // Valley depth varies along length
-        const depthModulation =
-            0.3 + 0.7 * Math.abs(this.perlinNoise(parallel * frequency * 0.05, 0));
-
-        return -valley * depth * depthModulation;
+        // Convert direction to rotation angle and delegate to natural method
+        const rotation = (Math.atan2(direction.z, direction.x) * 180) / Math.PI;
+        return this.carveNaturalValley(x, z, frequency, rotation, depth);
     }
 
     /**

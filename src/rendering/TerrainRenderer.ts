@@ -304,6 +304,57 @@ export class TerrainRenderer {
             @group(3) @binding(4) var shadowSampler: sampler_comparison;
             @group(3) @binding(5) var<uniform> shadowUniforms: ShadowUniforms;
             
+            // Improved Perlin noise functions to replace sine/cosine patterns
+            fn hash3(p: vec3<f32>) -> vec3<f32> {
+                var p3 = fract(p * vec3<f32>(0.1031, 0.1030, 0.0973));
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.xxy + p3.yzz) * p3.zyx);
+            }
+            
+            fn noise3D(p: vec3<f32>) -> f32 {
+                let i = floor(p);
+                let f = fract(p);
+                let u = f * f * (3.0 - 2.0 * f);
+                
+                return mix(
+                    mix(
+                        mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 0.0)), f - vec3<f32>(0.0, 0.0, 0.0)),
+                            dot(hash3(i + vec3<f32>(1.0, 0.0, 0.0)), f - vec3<f32>(1.0, 0.0, 0.0)), u.x),
+                        mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 0.0)), f - vec3<f32>(0.0, 1.0, 0.0)),
+                            dot(hash3(i + vec3<f32>(1.0, 1.0, 0.0)), f - vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
+                    mix(
+                        mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 1.0)), f - vec3<f32>(0.0, 0.0, 1.0)),
+                            dot(hash3(i + vec3<f32>(1.0, 0.0, 1.0)), f - vec3<f32>(1.0, 0.0, 1.0)), u.x),
+                        mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 1.0)), f - vec3<f32>(0.0, 1.0, 1.0)),
+                            dot(hash3(i + vec3<f32>(1.0, 1.0, 1.0)), f - vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z);
+            }
+            
+            fn fbm(p: vec3<f32>, octaves: i32) -> f32 {
+                var value = 0.0;
+                var amplitude = 1.0;
+                var frequency = 1.0;
+                var maxValue = 0.0;
+                
+                for (var i = 0; i < octaves; i++) {
+                    value += noise3D(p * frequency) * amplitude;
+                    maxValue += amplitude;
+                    amplitude *= 0.5;
+                    frequency *= 2.0;
+                }
+                
+                return value / maxValue;
+            }
+            
+            fn triplanarNoise(worldPos: vec3<f32>, scale: f32, octaves: i32) -> f32 {
+                let weights = abs(normalize(vec3<f32>(1.0, 1.0, 1.0)));
+                
+                let noiseX = fbm(worldPos.yzx * scale, octaves);
+                let noiseY = fbm(worldPos.xzy * scale, octaves);
+                let noiseZ = fbm(worldPos.xyz * scale, octaves);
+                
+                return (noiseX + noiseY + noiseZ) / 3.0;
+            }
+            
             struct VertexInput {
                 @location(0) position: vec3<f32>,
                 @location(1) normal: vec3<f32>,
@@ -407,9 +458,9 @@ export class TerrainRenderer {
                 switch (id) {
                     case 0: { baseColor = vec3<f32>(0.05, 0.3, 0.6); }     // Ocean - deep blue
                     case 1: { 
-                        // Beach - natural sand with subtle variation
+                        // Beach - natural sand with improved triplanar noise
                         baseColor = vec3<f32>(0.7, 0.6, 0.45);
-                        let sandNoise = sin(worldPos.x * 0.05) * cos(worldPos.z * 0.07) * 0.05;
+                        let sandNoise = triplanarNoise(worldPos, 0.017, 3) * 0.08;
                         baseColor += vec3<f32>(sandNoise, sandNoise * 0.8, sandNoise * 0.6);
                     }
                     case 2: { 
@@ -481,10 +532,10 @@ export class TerrainRenderer {
                 let lightGreen = vec3<f32>(0.35, 0.6, 0.25);
                 let brownPatch = vec3<f32>(0.3, 0.22, 0.08);
                 
-                // Multi-scale noise for grass variation
-                let noise1 = sin(worldPos.x * scale1) * cos(worldPos.z * scale1);
-                let noise2 = sin(worldPos.x * scale2) * cos(worldPos.z * scale2);
-                let noise3 = sin(worldPos.x * scale3 + time * 0.1) * cos(worldPos.z * scale3);
+                // Multi-scale noise for grass variation using improved noise
+                let noise1 = triplanarNoise(worldPos, scale1, 2);
+                let noise2 = triplanarNoise(worldPos, scale2, 2);
+                let noise3 = triplanarNoise(worldPos + vec3<f32>(time * 2.0, 0.0, 0.0), scale3, 2);
                 
                 // Combine noise layers
                 let grassDensity = (noise1 + noise2 * 0.5 + noise3 * 0.3) * 0.5 + 0.5;
@@ -528,8 +579,8 @@ export class TerrainRenderer {
                 let mossGreen = vec3<f32>(0.08, 0.25, 0.1);
                 let darkSoil = vec3<f32>(0.1, 0.08, 0.04);
                 
-                let noise1 = sin(worldPos.x * 0.03) * cos(worldPos.z * 0.04);
-                let noise2 = sin(worldPos.x * 0.1) * cos(worldPos.z * 0.12);
+                let noise1 = triplanarNoise(worldPos, 0.023, 3);
+                let noise2 = triplanarNoise(worldPos, 0.087, 2);
                 
                 // Moss in damper areas
                 let mossAreas = smoothstep(0.2, 0.6, noise1);
@@ -547,8 +598,8 @@ export class TerrainRenderer {
                 let darkSand = vec3<f32>(0.55, 0.45, 0.25);
                 let redSand = vec3<f32>(0.6, 0.35, 0.15);
                 
-                let noise1 = sin(worldPos.x * 0.01) * cos(worldPos.z * 0.015);
-                let noise2 = sin(worldPos.x * 0.05) * cos(worldPos.z * 0.06);
+                let noise1 = triplanarNoise(worldPos, 0.011, 4);
+                let noise2 = triplanarNoise(worldPos, 0.053, 2);
                 
                 var sandColor = mix(lightSand, darkSand, noise1 * 0.3 + 0.5);
                 sandColor = mix(sandColor, redSand, max(0.0, noise2) * 0.2);
@@ -563,8 +614,8 @@ export class TerrainRenderer {
                 let brownRock = vec3<f32>(0.35, 0.28, 0.2);
                 let slate = vec3<f32>(0.25, 0.28, 0.32);
                 
-                let noise1 = sin(worldPos.x * 0.008) * cos(worldPos.z * 0.012);
-                let noise2 = sin(worldPos.x * 0.03) * cos(worldPos.z * 0.04);
+                let noise1 = triplanarNoise(worldPos, 0.009, 3);
+                let noise2 = triplanarNoise(worldPos, 0.031, 2);
                 
                 var rockColor = mix(grayRock, darkRock, noise1 * 0.5 + 0.5);
                 rockColor = mix(rockColor, brownRock, max(0.0, noise2) * 0.3);
@@ -579,8 +630,8 @@ export class TerrainRenderer {
                 let blueSnow = vec3<f32>(0.8, 0.85, 0.9);
                 let sparkle = vec3<f32>(0.95, 0.95, 0.98);
                 
-                let noise1 = sin(worldPos.x * 0.1 + time * 0.5) * cos(worldPos.z * 0.12);
-                let sparkleNoise = sin(worldPos.x * 0.2) * cos(worldPos.z * 0.25 + time);
+                let noise1 = triplanarNoise(worldPos + vec3<f32>(time * 1.0, 0.0, 0.0), 0.11, 2);
+                let sparkleNoise = triplanarNoise(worldPos + vec3<f32>(time * 0.5, time * 0.3, 0.0), 0.19, 1);
                 
                 var snowColor = mix(pureWhite, blueSnow, noise1 * 0.2 + 0.3);
                 let sparkleEffect = smoothstep(0.7, 0.9, sparkleNoise);
@@ -595,8 +646,8 @@ export class TerrainRenderer {
                 let permafrost = vec3<f32>(0.4, 0.45, 0.5);
                 let deadGrass = vec3<f32>(0.6, 0.5, 0.3);
                 
-                let noise1 = sin(worldPos.x * 0.02) * cos(worldPos.z * 0.03);
-                let noise2 = sin(worldPos.x * 0.08) * cos(worldPos.z * 0.1);
+                let noise1 = triplanarNoise(worldPos, 0.021, 3);
+                let noise2 = triplanarNoise(worldPos, 0.083, 2);
                 
                 var tundraColor = mix(frozenSoil, permafrost, noise1 * 0.4 + 0.5);
                 tundraColor = mix(tundraColor, deadGrass, max(0.0, noise2) * 0.3);
@@ -611,8 +662,8 @@ export class TerrainRenderer {
                 let organicMatter = vec3<f32>(0.15, 0.2, 0.1);
                 let waterReflection = vec3<f32>(0.4, 0.5, 0.6);
                 
-                let noise1 = sin(worldPos.x * 0.04) * cos(worldPos.z * 0.05);
-                let noise2 = sin(worldPos.x * 0.15) * cos(worldPos.z * 0.18);
+                let noise1 = triplanarNoise(worldPos, 0.041, 3);
+                let noise2 = triplanarNoise(worldPos, 0.151, 2);
                 
                 var wetlandColor = mix(darkMud, wetSoil, noise1 * 0.5 + 0.5);
                 wetlandColor = mix(wetlandColor, organicMatter, max(0.0, noise2) * 0.4);
@@ -660,11 +711,11 @@ export class TerrainRenderer {
                 // Base terrain color based on material ID (biome) with enhanced texturing
                 var baseColor = getBiomeColor(input.materialId, input.worldPos.y, input.worldPos, uniforms.time);
                 
-                // Add noise-based texture variation for more realistic surfaces
-                let noiseScale = 0.01;
-                let noiseValue1 = sin(input.worldPos.x * noiseScale) * cos(input.worldPos.z * noiseScale);
-                let noiseValue2 = sin(input.worldPos.x * noiseScale * 2.5) * cos(input.worldPos.z * noiseScale * 2.5);
-                let combinedNoise = (noiseValue1 + noiseValue2 * 0.5) * 0.1;
+                // Add noise-based texture variation with improved Perlin noise
+                let noiseScale = 0.013;
+                let noiseValue1 = triplanarNoise(input.worldPos, noiseScale, 3);
+                let noiseValue2 = triplanarNoise(input.worldPos, noiseScale * 2.7, 2);
+                let combinedNoise = (noiseValue1 + noiseValue2 * 0.5) * 0.12;
                 
                 // Apply noise variation
                 baseColor += vec3<f32>(combinedNoise, combinedNoise * 0.8, combinedNoise * 0.6);

@@ -304,7 +304,7 @@ export class SimpleWaterRenderer {
                 finalColor += vec3<f32>(0.2, 0.5, 0.8) * backscatter;
                 
                 // Depth-based transparency
-                let alpha = mix(0.8, 0.95, clamp(fresnel + normalizedDistance * 0.3, 0.0, 1.0));
+                var alpha = mix(0.8, 0.95, clamp(fresnel + normalizedDistance * 0.3, 0.0, 1.0));
                 alpha = max(alpha, 0.75); // Ensure water is never too transparent
                 
                 return vec4<f32>(finalColor, alpha);
