@@ -92,12 +92,12 @@ export class TerrainRenderer {
             ],
         });
 
-        // Create uniform buffer for matrices
-        // MVP (64) + Model (64) + Normal (64) + Camera pos (12) + time (4) = 208 bytes
+        // Create uniform buffer for matrices and environmental parameters
+        // MVP (64) + Model (64) + Normal (64) + Camera pos (12) + time (4) + seasonal params (12) = 220 bytes
         // Round up to 256 for alignment
         this.uniformBuffer = device.createBuffer({
             label: 'Terrain Uniform Buffer',
-            size: 256, // MVP + Model + Normal matrices + camera position + time
+            size: 256, // MVP + Model + Normal matrices + camera position + time + environmental
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -277,6 +277,9 @@ export class TerrainRenderer {
                 normalMatrix: mat4x4<f32>,
                 cameraPosition: vec3<f32>,
                 time: f32,
+                seasonFactor: f32,    // 0.0 = spring, 0.25 = summer, 0.5 = autumn, 0.75 = winter, 1.0 = spring
+                temperatureFactor: f32, // -1.0 = cold, 0.0 = temperate, 1.0 = hot
+                precipitationFactor: f32, // 0.0 = dry, 1.0 = wet
             };
             
             struct ShadowUniforms {
@@ -396,25 +399,51 @@ export class TerrainRenderer {
                 return shadowSum / sampleCount;
             }
             
-            fn getBiomeColor(materialId: f32, elevation: f32) -> vec3<f32> {
+            fn getBiomeColor(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32) -> vec3<f32> {
                 let id = i32(materialId);
                 
-                // Enhanced biome colors with more realistic variation
+                // Natural biome colors with realistic earth tones
                 var baseColor: vec3<f32>;
                 switch (id) {
-                    case 0: { baseColor = vec3<f32>(0.1, 0.5, 0.9); }      // Ocean - deeper blue
-                    case 1: { baseColor = vec3<f32>(0.95, 0.85, 0.7); }     // Beach - warmer sand
-                    case 2: { baseColor = vec3<f32>(0.4, 0.9, 0.3); }       // Grassland - vibrant green
-                    case 3: { baseColor = vec3<f32>(0.2, 0.7, 0.2); }       // Forest - rich green
-                    case 4: { baseColor = vec3<f32>(0.95, 0.8, 0.5); }      // Desert - warm sand
-                    case 5: { baseColor = vec3<f32>(0.7, 0.7, 0.8); }       // Mountain - blueish gray
-                    case 6: { baseColor = vec3<f32>(0.98, 0.98, 1.0); }     // Snow - pure white with blue tint
-                    case 7: { baseColor = vec3<f32>(0.6, 0.7, 0.6); }       // Tundra - muted green
-                    case 8: { baseColor = vec3<f32>(0.4, 0.6, 0.4); }       // Wetland - dark green
+                    case 0: { baseColor = vec3<f32>(0.05, 0.3, 0.6); }     // Ocean - deep blue
+                    case 1: { 
+                        // Beach - natural sand with subtle variation
+                        baseColor = vec3<f32>(0.7, 0.6, 0.45);
+                        let sandNoise = sin(worldPos.x * 0.05) * cos(worldPos.z * 0.07) * 0.05;
+                        baseColor += vec3<f32>(sandNoise, sandNoise * 0.8, sandNoise * 0.6);
+                    }
+                    case 2: { 
+                        // Grassland - enhanced with tiling grass texture
+                        baseColor = getGrasslandTexture(worldPos, time);
+                    }
+                    case 3: { 
+                        // Forest - rich soil with organic variation
+                        baseColor = getForestFloorTexture(worldPos, elevation);
+                    }
+                    case 4: { 
+                        // Desert - enhanced sand texture
+                        baseColor = getDesertTexture(worldPos);
+                    }
+                    case 5: { 
+                        // Mountain - rocky texture with mineral variation
+                        baseColor = getMountainTexture(worldPos, elevation);
+                    }
+                    case 6: { 
+                        // Snow - pure white with subtle blue tint and sparkle
+                        baseColor = getSnowTexture(worldPos, time);
+                    }
+                    case 7: { 
+                        // Tundra - frozen soil with sparse vegetation
+                        baseColor = getTundraTexture(worldPos);
+                    }
+                    case 8: { 
+                        // Wetland - muddy terrain with organic matter
+                        baseColor = getWetlandTexture(worldPos);
+                    }
                     case 9: { baseColor = vec3<f32>(0.8, 0.8, 0.8); }       // Urban - light gray
                     case 10: { baseColor = vec3<f32>(0.2, 0.6, 1.0); }      // Lake - bright blue
                     case 11: { baseColor = vec3<f32>(0.3, 0.7, 1.0); }      // River - flowing blue
-                    default: { baseColor = vec3<f32>(0.5, 0.8, 0.3); }      // Default grassland - brighter
+                    default: { baseColor = getGrasslandTexture(worldPos, time); } // Default grassland
                 }
                 
                 // Add elevation-based variation for more realism
@@ -434,6 +463,165 @@ export class TerrainRenderer {
                 }
                 
                 return baseColor;
+            }
+            
+            // Grass texture with seasonal variation and natural colors
+            fn getGrasslandTexture(worldPos: vec3<f32>, time: f32) -> vec3<f32> {
+                let scale1 = 0.02;
+                let scale2 = 0.08;
+                let scale3 = 0.15;
+                
+                // Natural grass colors - more muted and realistic
+                let springGreen = vec3<f32>(0.3, 0.6, 0.2);   // Fresh spring green
+                let summerGreen = vec3<f32>(0.25, 0.5, 0.18); // Mature summer green
+                let autumnBrown = vec3<f32>(0.45, 0.35, 0.15); // Autumn gold
+                let winterBrown = vec3<f32>(0.3, 0.25, 0.15);  // Winter dormant
+                
+                let darkGreen = vec3<f32>(0.15, 0.4, 0.1);
+                let lightGreen = vec3<f32>(0.35, 0.6, 0.25);
+                let brownPatch = vec3<f32>(0.3, 0.22, 0.08);
+                
+                // Multi-scale noise for grass variation
+                let noise1 = sin(worldPos.x * scale1) * cos(worldPos.z * scale1);
+                let noise2 = sin(worldPos.x * scale2) * cos(worldPos.z * scale2);
+                let noise3 = sin(worldPos.x * scale3 + time * 0.1) * cos(worldPos.z * scale3);
+                
+                // Combine noise layers
+                let grassDensity = (noise1 + noise2 * 0.5 + noise3 * 0.3) * 0.5 + 0.5;
+                let brownPatches = smoothstep(0.3, 0.4, noise2);
+                
+                // Apply seasonal variation
+                let seasonCycle = uniforms.seasonFactor * 4.0; // Convert to 0-4 range
+                var seasonalGrassColor: vec3<f32>;
+                
+                if (seasonCycle < 1.0) {        // Spring
+                    seasonalGrassColor = mix(winterBrown, springGreen, seasonCycle);
+                } else if (seasonCycle < 2.0) { // Summer
+                    seasonalGrassColor = mix(springGreen, summerGreen, seasonCycle - 1.0);
+                } else if (seasonCycle < 3.0) { // Autumn
+                    seasonalGrassColor = mix(summerGreen, autumnBrown, seasonCycle - 2.0);
+                } else {                        // Winter
+                    seasonalGrassColor = mix(autumnBrown, winterBrown, seasonCycle - 3.0);
+                }
+                
+                // Color mixing with seasonal base
+                var grassColor = mix(darkGreen * 0.7, seasonalGrassColor, grassDensity);
+                grassColor = mix(grassColor, lightGreen * 0.8, max(0.0, noise3) * 0.3);
+                grassColor = mix(grassColor, brownPatch, brownPatches * 0.2);
+                
+                // Temperature and precipitation effects
+                let coldEffect = clamp(-uniforms.temperatureFactor, 0.0, 1.0);
+                let dryEffect = clamp(1.0 - uniforms.precipitationFactor, 0.0, 1.0);
+                
+                // Cold makes grass more brown/dead
+                grassColor = mix(grassColor, vec3<f32>(0.4, 0.3, 0.2), coldEffect * 0.3);
+                // Dry conditions make grass less vibrant
+                grassColor *= mix(1.0, 0.7, dryEffect * 0.5);
+                
+                return grassColor;
+            }
+            
+            // Forest floor texture with rich organic variation
+            fn getForestFloorTexture(worldPos: vec3<f32>, elevation: f32) -> vec3<f32> {
+                let soilBrown = vec3<f32>(0.18, 0.12, 0.06);
+                let leafLitter = vec3<f32>(0.3, 0.2, 0.08);
+                let mossGreen = vec3<f32>(0.08, 0.25, 0.1);
+                let darkSoil = vec3<f32>(0.1, 0.08, 0.04);
+                
+                let noise1 = sin(worldPos.x * 0.03) * cos(worldPos.z * 0.04);
+                let noise2 = sin(worldPos.x * 0.1) * cos(worldPos.z * 0.12);
+                
+                // Moss in damper areas
+                let mossAreas = smoothstep(0.2, 0.6, noise1);
+                
+                var forestColor = mix(soilBrown, leafLitter, noise2 * 0.5 + 0.5);
+                forestColor = mix(forestColor, mossGreen, mossAreas * 0.4);
+                forestColor = mix(forestColor, darkSoil, max(0.0, -noise2) * 0.3);
+                
+                return forestColor;
+            }
+            
+            // Desert sand texture with natural dune patterns
+            fn getDesertTexture(worldPos: vec3<f32>) -> vec3<f32> {
+                let lightSand = vec3<f32>(0.7, 0.6, 0.4);
+                let darkSand = vec3<f32>(0.55, 0.45, 0.25);
+                let redSand = vec3<f32>(0.6, 0.35, 0.15);
+                
+                let noise1 = sin(worldPos.x * 0.01) * cos(worldPos.z * 0.015);
+                let noise2 = sin(worldPos.x * 0.05) * cos(worldPos.z * 0.06);
+                
+                var sandColor = mix(lightSand, darkSand, noise1 * 0.3 + 0.5);
+                sandColor = mix(sandColor, redSand, max(0.0, noise2) * 0.2);
+                
+                return sandColor;
+            }
+            
+            // Mountain rocky texture with realistic stone colors
+            fn getMountainTexture(worldPos: vec3<f32>, elevation: f32) -> vec3<f32> {
+                let grayRock = vec3<f32>(0.45, 0.45, 0.5);
+                let darkRock = vec3<f32>(0.3, 0.3, 0.35);
+                let brownRock = vec3<f32>(0.35, 0.28, 0.2);
+                let slate = vec3<f32>(0.25, 0.28, 0.32);
+                
+                let noise1 = sin(worldPos.x * 0.008) * cos(worldPos.z * 0.012);
+                let noise2 = sin(worldPos.x * 0.03) * cos(worldPos.z * 0.04);
+                
+                var rockColor = mix(grayRock, darkRock, noise1 * 0.5 + 0.5);
+                rockColor = mix(rockColor, brownRock, max(0.0, noise2) * 0.3);
+                rockColor = mix(rockColor, slate, smoothstep(800.0, 1200.0, elevation) * 0.4);
+                
+                return rockColor;
+            }
+            
+            // Snow texture with natural variations
+            fn getSnowTexture(worldPos: vec3<f32>, time: f32) -> vec3<f32> {
+                let pureWhite = vec3<f32>(0.9, 0.9, 0.95);
+                let blueSnow = vec3<f32>(0.8, 0.85, 0.9);
+                let sparkle = vec3<f32>(0.95, 0.95, 0.98);
+                
+                let noise1 = sin(worldPos.x * 0.1 + time * 0.5) * cos(worldPos.z * 0.12);
+                let sparkleNoise = sin(worldPos.x * 0.2) * cos(worldPos.z * 0.25 + time);
+                
+                var snowColor = mix(pureWhite, blueSnow, noise1 * 0.2 + 0.3);
+                let sparkleEffect = smoothstep(0.7, 0.9, sparkleNoise);
+                snowColor = mix(snowColor, sparkle, sparkleEffect * 0.1);
+                
+                return snowColor;
+            }
+            
+            // Tundra frozen ground texture
+            fn getTundraTexture(worldPos: vec3<f32>) -> vec3<f32> {
+                let frozenSoil = vec3<f32>(0.5, 0.5, 0.45);
+                let permafrost = vec3<f32>(0.4, 0.45, 0.5);
+                let deadGrass = vec3<f32>(0.6, 0.5, 0.3);
+                
+                let noise1 = sin(worldPos.x * 0.02) * cos(worldPos.z * 0.03);
+                let noise2 = sin(worldPos.x * 0.08) * cos(worldPos.z * 0.1);
+                
+                var tundraColor = mix(frozenSoil, permafrost, noise1 * 0.4 + 0.5);
+                tundraColor = mix(tundraColor, deadGrass, max(0.0, noise2) * 0.3);
+                
+                return tundraColor;
+            }
+            
+            // Wetland muddy texture
+            fn getWetlandTexture(worldPos: vec3<f32>) -> vec3<f32> {
+                let darkMud = vec3<f32>(0.2, 0.15, 0.1);
+                let wetSoil = vec3<f32>(0.3, 0.25, 0.15);
+                let organicMatter = vec3<f32>(0.15, 0.2, 0.1);
+                let waterReflection = vec3<f32>(0.4, 0.5, 0.6);
+                
+                let noise1 = sin(worldPos.x * 0.04) * cos(worldPos.z * 0.05);
+                let noise2 = sin(worldPos.x * 0.15) * cos(worldPos.z * 0.18);
+                
+                var wetlandColor = mix(darkMud, wetSoil, noise1 * 0.5 + 0.5);
+                wetlandColor = mix(wetlandColor, organicMatter, max(0.0, noise2) * 0.4);
+                
+                // Add subtle water reflection in very wet areas
+                let wateriness = smoothstep(0.5, 0.8, noise1);
+                wetlandColor = mix(wetlandColor, waterReflection, wateriness * 0.15);
+                
+                return wetlandColor;
             }
             
             fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
@@ -469,8 +657,8 @@ export class TerrainRenderer {
             
             @fragment
             fn fs_terrain(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Base terrain color based on material ID (biome)
-                var baseColor = getBiomeColor(input.materialId, input.worldPos.y);
+                // Base terrain color based on material ID (biome) with enhanced texturing
+                var baseColor = getBiomeColor(input.materialId, input.worldPos.y, input.worldPos, uniforms.time);
                 
                 // Add noise-based texture variation for more realistic surfaces
                 let noiseScale = 0.01;
@@ -609,7 +797,7 @@ export class TerrainRenderer {
         // Create a unique uniform buffer for this tile
         const uniformBuffer = this.device.createBuffer({
             label: `Terrain Uniform Buffer ${tile.id}`,
-            size: 256, // Same size as the shared uniform buffer
+            size: 256, // Same size as the shared uniform buffer with environmental params
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -648,10 +836,13 @@ export class TerrainRenderer {
 
         renderPass.setPipeline(pipelineToUse);
 
-        // Create and set shadow bind group if we have a shadow system (for main pass only)
-        if (!isShadowPass && shadowSystem && this.shadowBindGroupLayout) {
-            if (!this.shadowBindGroup) {
-                this.shadowBindGroup = this.createShadowBindGroup(shadowSystem);
+        // Create and set shadow bind group (for main pass only)
+        if (!isShadowPass && this.shadowBindGroupLayout) {
+            if (!this.shadowBindGroup || shadowSystem) {
+                // Create or update shadow bind group
+                this.shadowBindGroup = shadowSystem
+                    ? this.createShadowBindGroup(shadowSystem)
+                    : this.createDummyShadowBindGroup();
             }
             // Set shadow bind group for all tiles (group 3)
             renderPass.setBindGroup(3, this.shadowBindGroup);
@@ -848,6 +1039,39 @@ export class TerrainRenderer {
             label: 'Dummy Uniform Buffer',
             size: 256,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+    }
+
+    /**
+     * Create dummy shadow bind group when no shadow system is available
+     */
+    private createDummyShadowBindGroup(): GPUBindGroup {
+        const entries: GPUBindGroupEntry[] = [];
+
+        // Add dummy shadow map textures (bindings 0-3)
+        for (let i = 0; i < 4; i++) {
+            entries.push({
+                binding: i,
+                resource: this.createDummyDepthTexture().createView(),
+            });
+        }
+
+        // Add dummy shadow sampler (binding 4)
+        entries.push({
+            binding: 4,
+            resource: this.createDummySampler(),
+        });
+
+        // Add dummy shadow uniforms (binding 5)
+        entries.push({
+            binding: 5,
+            resource: { buffer: this.createDummyUniformBuffer() },
+        });
+
+        return this.device.createBindGroup({
+            label: 'Dummy Shadow Bind Group',
+            layout: this.shadowBindGroupLayout!,
+            entries,
         });
     }
 
