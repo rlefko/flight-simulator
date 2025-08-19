@@ -222,90 +222,117 @@ export class SimpleWaterRenderer {
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                 let waveTime = uniforms.time;
                 
-                // Realistic ocean water colors based on depth
-                let coastalColor = vec3<f32>(0.4, 0.7, 0.8);   // Light turquoise for shallow water
-                let shallowColor = vec3<f32>(0.2, 0.5, 0.7);   // Medium blue for shallow ocean
-                let midColor = vec3<f32>(0.1, 0.3, 0.5);       // Deeper blue for mid ocean  
-                let deepColor = vec3<f32>(0.05, 0.15, 0.3);    // Dark blue for deep ocean
+                // More realistic ocean water colors - much darker and more saturated
+                let coastalColor = vec3<f32>(0.15, 0.35, 0.45);   // Darker coastal water
+                let shallowColor = vec3<f32>(0.08, 0.25, 0.40);   // Darker shallow ocean
+                let midColor = vec3<f32>(0.04, 0.12, 0.24);       // Deep ocean blue (as requested)
+                let deepColor = vec3<f32>(0.02, 0.08, 0.18);      // Very deep ocean
                 
-                // Calculate depth-based color
+                // Calculate depth-based color using both distance and actual wave depth
                 let cameraDistance = length(uniforms.cameraPosition - input.worldPos);
-                let normalizedDistance = clamp(cameraDistance * 0.001, 0.0, 3.0);
+                let normalizedDistance = clamp(cameraDistance * 0.0008, 0.0, 4.0); // Slower transition
                 
-                let depthFactor1 = clamp(normalizedDistance, 0.0, 1.0);
-                let depthFactor2 = clamp(normalizedDistance - 1.0, 0.0, 1.0); 
-                let depthFactor3 = clamp(normalizedDistance - 2.0, 0.0, 1.0);
+                // Use wave height as additional depth factor
+                let waveDepth = max(0.0, -input.worldPos.y); // Depth below sea level
+                let depthFactor = clamp(waveDepth * 0.1, 0.0, 1.0);
                 
-                var waterColor = mix(coastalColor, shallowColor, depthFactor1);
-                waterColor = mix(waterColor, midColor, depthFactor2);
-                waterColor = mix(waterColor, deepColor, depthFactor3);
+                let distanceFactor1 = clamp(normalizedDistance, 0.0, 1.0);
+                let distanceFactor2 = clamp(normalizedDistance - 1.0, 0.0, 1.0); 
+                let distanceFactor3 = clamp(normalizedDistance - 2.0, 0.0, 1.0);
+                
+                var waterColor = mix(coastalColor, shallowColor, distanceFactor1);
+                waterColor = mix(waterColor, midColor, distanceFactor2);
+                waterColor = mix(waterColor, deepColor, distanceFactor3);
+                
+                // Apply depth-based darkening
+                waterColor = mix(waterColor, deepColor, depthFactor);
                 
                 // Enhanced lighting and reflections
-                let lightDir = normalize(vec3<f32>(0.4, 0.8, 0.3));
+                let lightDir = normalize(vec3<f32>(0.3, 0.7, 0.4)); // Softer light angle
                 let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
                 
                 // Add small-scale normal perturbation for surface detail
                 let detailNormal = vec3<f32>(
-                    sin(input.worldPos.x * 0.2 + waveTime * 2.0) * 0.08 + sin(input.worldPos.x * 0.5 + waveTime * 3.5) * 0.04,
+                    sin(input.worldPos.x * 0.15 + waveTime * 1.8) * 0.06 + sin(input.worldPos.x * 0.4 + waveTime * 3.2) * 0.03,
                     1.0,
-                    cos(input.worldPos.z * 0.18 + waveTime * 1.8) * 0.08 + cos(input.worldPos.z * 0.45 + waveTime * 2.8) * 0.04
+                    cos(input.worldPos.z * 0.13 + waveTime * 1.6) * 0.06 + cos(input.worldPos.z * 0.38 + waveTime * 2.6) * 0.03
                 );
-                let surfaceNormal = normalize(mix(input.normal, detailNormal, 0.3));
+                let surfaceNormal = normalize(mix(input.normal, detailNormal, 0.4));
                 
-                // Fresnel reflection calculation
-                let F0 = 0.02;
+                // More accurate Fresnel reflection calculation
+                let F0 = 0.02; // Water's reflectance at normal incidence
                 let cosTheta = max(dot(viewDir, surfaceNormal), 0.0);
                 let fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
                 
-                // Sky reflection (realistic sky color)
-                let skyZenith = vec3<f32>(0.3, 0.6, 1.0);
-                let skyHorizon = vec3<f32>(0.8, 0.9, 1.0);
+                // More realistic sky reflection colors
+                let skyZenith = vec3<f32>(0.15, 0.35, 0.65);    // Darker, more realistic sky
+                let skyHorizon = vec3<f32>(0.55, 0.65, 0.85);   // Softer horizon
                 let upDot = max(dot(reflect(-viewDir, surfaceNormal), vec3<f32>(0.0, 1.0, 0.0)), 0.0);
                 let skyColor = mix(skyHorizon, skyZenith, upDot);
-                let skyReflection = skyColor * fresnel * 0.8;
+                let skyReflection = skyColor * fresnel * 0.6; // Reduced reflection intensity
                 
-                // Sun reflection
+                // Sun reflection - more controlled
                 let sunDir = lightDir;
                 let reflectDir = reflect(-lightDir, surfaceNormal);
-                let specularPower = mix(32.0, 128.0, fresnel);
+                let specularPower = mix(64.0, 256.0, fresnel); // Sharper highlights
                 let sunReflection = pow(max(dot(viewDir, reflectDir), 0.0), specularPower) * fresnel;
-                let sunColor = vec3<f32>(1.0, 0.95, 0.8);
+                let sunColor = vec3<f32>(1.0, 0.9, 0.7); // Warmer sun color
                 
-                // Caustics for shallow water
-                let causticsStrength = 1.0 - smoothstep(0.0, 1.5, normalizedDistance);
-                let causticTime = waveTime * 0.8;
-                let causticUV = input.worldPos.xz * 0.03;
-                let causticPattern1 = sin(causticUV.x * 8.0 + causticTime) * cos(causticUV.y * 6.0 + causticTime * 1.3);
-                let causticPattern2 = sin(causticUV.x * 12.0 - causticTime * 1.5) * cos(causticUV.y * 9.0 + causticTime * 0.8);
-                let caustics = causticsStrength * max(0.0, causticPattern1 * causticPattern2) * 0.15;
+                // Improved caustics for shallow water
+                let causticsStrength = 1.0 - smoothstep(0.0, 2.0, normalizedDistance);
+                let causticTime = waveTime * 0.6;
+                let causticUV = input.worldPos.xz * 0.02;
+                let causticPattern1 = sin(causticUV.x * 12.0 + causticTime) * cos(causticUV.y * 8.0 + causticTime * 1.2);
+                let causticPattern2 = sin(causticUV.x * 16.0 - causticTime * 1.3) * cos(causticUV.y * 11.0 + causticTime * 0.9);
+                let causticPattern3 = sin((causticUV.x + causticUV.y) * 7.0 + causticTime * 2.0) * 0.5;
+                let caustics = causticsStrength * max(0.0, (causticPattern1 * causticPattern2 + causticPattern3)) * 0.08;
                 
-                // Foam from wave crests
+                // Foam from wave crests - more realistic
                 let waveHeight = input.worldPos.y;
-                let foamThreshold = 0.8;
-                let foamIntensity = smoothstep(foamThreshold, foamThreshold + 0.5, waveHeight);
-                let foamColor = vec3<f32>(0.9, 0.95, 1.0);
+                let foamThreshold = 0.6;
+                let foamFalloff = 0.4;
+                let foamIntensity = smoothstep(foamThreshold, foamThreshold + foamFalloff, waveHeight);
                 
-                // Basic lighting
-                let ndotl = max(dot(surfaceNormal, lightDir), 0.2);
+                // Add foam based on wave steepness
+                let normalSteepness = 1.0 - surfaceNormal.y;
+                let steepnessFoam = smoothstep(0.2, 0.5, normalSteepness);
+                foamIntensity = max(foamIntensity, steepnessFoam * 0.7);
                 
-                // Volumetric absorption (Beer-Lambert law)
-                let absorptionCoeff = vec3<f32>(0.45, 0.03, 0.01); // Red absorbed more than blue
-                let absorption = exp(-absorptionCoeff * normalizedDistance * 10.0);
+                let foamColor = vec3<f32>(0.85, 0.9, 0.95); // Slightly blue-tinted foam
                 
-                // Final color composition
+                // Improved lighting calculation
+                let ndotl = max(dot(surfaceNormal, lightDir), 0.15); // Darker ambient
+                let halfVector = normalize(lightDir + viewDir);
+                let specular = pow(max(dot(surfaceNormal, halfVector), 0.0), 32.0) * 0.3;
+                
+                // Enhanced Beer-Lambert absorption
+                let absorptionCoeff = vec3<f32>(0.6, 0.05, 0.02); // More realistic absorption
+                let absorption = exp(-absorptionCoeff * normalizedDistance * 8.0);
+                
+                // Subsurface scattering - more subtle
+                let backscatter = max(0.0, -dot(viewDir, lightDir)) * (1.0 - distanceFactor1) * 0.15;
+                let scatterColor = vec3<f32>(0.1, 0.3, 0.5);
+                
+                // Final color composition with improved blending
                 var finalColor = waterColor * absorption * ndotl;
                 finalColor += skyReflection;
-                finalColor += sunColor * sunReflection * 2.0;
-                finalColor += vec3<f32>(0.7, 0.9, 1.0) * caustics;
-                finalColor = mix(finalColor, foamColor, foamIntensity * 0.6);
+                finalColor += sunColor * sunReflection * 1.5;
+                finalColor += sunColor * specular;
+                finalColor += vec3<f32>(0.4, 0.6, 0.8) * caustics;
+                finalColor += scatterColor * backscatter;
+                finalColor = mix(finalColor, foamColor, foamIntensity * 0.8);
                 
-                // Add subsurface scattering
-                let backscatter = max(0.0, -dot(viewDir, lightDir)) * (1.0 - depthFactor1) * 0.3;
-                finalColor += vec3<f32>(0.2, 0.5, 0.8) * backscatter;
+                // Improved transparency calculation
+                let baseAlpha = 0.85;
+                let fresnelAlpha = mix(0.7, 0.95, fresnel);
+                let depthAlpha = 1.0 - exp(-normalizedDistance * 0.5);
+                var alpha = mix(baseAlpha, fresnelAlpha, 0.6);
+                alpha = mix(alpha, 0.98, depthAlpha);
+                alpha = max(alpha, 0.7); // Minimum transparency
                 
-                // Depth-based transparency
-                var alpha = mix(0.8, 0.95, clamp(fresnel + normalizedDistance * 0.3, 0.0, 1.0));
-                alpha = max(alpha, 0.75); // Ensure water is never too transparent
+                // Color grading for more realistic look
+                finalColor = pow(finalColor, vec3<f32>(1.1)); // Slight gamma adjustment
+                finalColor *= 0.9; // Reduce overall brightness
                 
                 return vec4<f32>(finalColor, alpha);
             }

@@ -304,32 +304,43 @@ export class TerrainRenderer {
             @group(3) @binding(4) var shadowSampler: sampler_comparison;
             @group(3) @binding(5) var<uniform> shadowUniforms: ShadowUniforms;
             
-            // Improved Perlin noise functions to replace sine/cosine patterns
+            // Enhanced noise functions for photorealistic terrain textures
             fn hash3(p: vec3<f32>) -> vec3<f32> {
                 var p3 = fract(p * vec3<f32>(0.1031, 0.1030, 0.0973));
                 p3 += dot(p3, p3.yzx + 33.33);
                 return fract((p3.xxy + p3.yzz) * p3.zyx);
             }
             
+            // Enhanced hash function for better random distribution
+            fn hash13(p3: vec3<f32>) -> f32 {
+                let p = fract(p3 * 0.1031);
+                let dotProduct = dot(p, p.zyx + 31.32);
+                return fract((p.x + p.y) * dotProduct);
+            }
+            
+            // Improved 3D noise with better interpolation
             fn noise3D(p: vec3<f32>) -> f32 {
                 let i = floor(p);
                 let f = fract(p);
-                let u = f * f * (3.0 - 2.0 * f);
+                
+                // Use quintic interpolation for smoother results
+                let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
                 
                 return mix(
                     mix(
-                        mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 0.0)), f - vec3<f32>(0.0, 0.0, 0.0)),
-                            dot(hash3(i + vec3<f32>(1.0, 0.0, 0.0)), f - vec3<f32>(1.0, 0.0, 0.0)), u.x),
-                        mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 0.0)), f - vec3<f32>(0.0, 1.0, 0.0)),
-                            dot(hash3(i + vec3<f32>(1.0, 1.0, 0.0)), f - vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
+                        mix(hash13(i + vec3<f32>(0.0, 0.0, 0.0)),
+                            hash13(i + vec3<f32>(1.0, 0.0, 0.0)), u.x),
+                        mix(hash13(i + vec3<f32>(0.0, 1.0, 0.0)),
+                            hash13(i + vec3<f32>(1.0, 1.0, 0.0)), u.x), u.y),
                     mix(
-                        mix(dot(hash3(i + vec3<f32>(0.0, 0.0, 1.0)), f - vec3<f32>(0.0, 0.0, 1.0)),
-                            dot(hash3(i + vec3<f32>(1.0, 0.0, 1.0)), f - vec3<f32>(1.0, 0.0, 1.0)), u.x),
-                        mix(dot(hash3(i + vec3<f32>(0.0, 1.0, 1.0)), f - vec3<f32>(0.0, 1.0, 1.0)),
-                            dot(hash3(i + vec3<f32>(1.0, 1.0, 1.0)), f - vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z);
+                        mix(hash13(i + vec3<f32>(0.0, 0.0, 1.0)),
+                            hash13(i + vec3<f32>(1.0, 0.0, 1.0)), u.x),
+                        mix(hash13(i + vec3<f32>(0.0, 1.0, 1.0)),
+                            hash13(i + vec3<f32>(1.0, 1.0, 1.0)), u.x), u.y), u.z) * 2.0 - 1.0;
             }
             
-            fn fbm(p: vec3<f32>, octaves: i32) -> f32 {
+            // Multi-octave fractal noise with configurable persistence
+            fn fbm(p: vec3<f32>, octaves: i32, persistence: f32, lacunarity: f32) -> f32 {
                 var value = 0.0;
                 var amplitude = 1.0;
                 var frequency = 1.0;
@@ -338,26 +349,81 @@ export class TerrainRenderer {
                 for (var i = 0; i < octaves; i++) {
                     value += noise3D(p * frequency) * amplitude;
                     maxValue += amplitude;
-                    amplitude *= 0.5;
-                    frequency *= 2.0;
+                    amplitude *= persistence;
+                    frequency *= lacunarity;
                 }
                 
                 return value / maxValue;
             }
             
+            // Domain warping for more organic texture patterns
+            fn domainWarp(p: vec3<f32>, strength: f32) -> vec3<f32> {
+                return p + vec3<f32>(
+                    fbm(p + vec3<f32>(0.0, 0.0, 0.0), 4, 0.5, 2.0),
+                    fbm(p + vec3<f32>(5.2, 1.3, 0.0), 4, 0.5, 2.0),
+                    fbm(p + vec3<f32>(0.0, 5.2, 1.3), 4, 0.5, 2.0)
+                ) * strength;
+            }
+            
+            // Enhanced triplanar mapping with proper blending to eliminate plaid patterns
             fn triplanarNoise(worldPos: vec3<f32>, normal: vec3<f32>, scale: f32, octaves: i32) -> f32 {
-                // Calculate proper triplanar weights based on surface normal
-                let weights = abs(normal);
+                // Apply domain warping for more organic patterns
+                let warpedPos = domainWarp(worldPos * 0.01, 8.0);
+                
+                // Calculate triplanar weights with power to reduce blending artifacts
+                let weights = pow(abs(normal), vec3<f32>(8.0));
                 let weightSum = weights.x + weights.y + weights.z;
-                let normalizedWeights = weights / weightSum;
+                let normalizedWeights = weights / max(weightSum, 0.001);
                 
-                // Sample noise from three orthogonal planes
-                let noiseX = fbm(worldPos.yzx * scale, octaves);  // YZ plane (for X-facing surfaces)
-                let noiseY = fbm(worldPos.xzy * scale, octaves);  // XZ plane (for Y-facing surfaces)
-                let noiseZ = fbm(worldPos.xyz * scale, octaves);  // XY plane (for Z-facing surfaces)
+                // Sample noise from three orthogonal planes with slight offsets to break patterns
+                let noiseX = fbm((warpedPos + worldPos).yzx * scale, octaves, 0.6, 2.1);
+                let noiseY = fbm((warpedPos + worldPos).zxy * scale, octaves, 0.6, 2.1);
+                let noiseZ = fbm((warpedPos + worldPos).xyz * scale, octaves, 0.6, 2.1);
                 
-                // Blend based on surface normal orientation
+                // Blend with normalized weights
                 return noiseX * normalizedWeights.x + noiseY * normalizedWeights.y + noiseZ * normalizedWeights.z;
+            }
+            
+            // Enhanced triplanar normal mapping
+            fn triplanarNormal(worldPos: vec3<f32>, normal: vec3<f32>, scale: f32, strength: f32) -> vec3<f32> {
+                let eps = 0.01;
+                
+                // Calculate triplanar weights
+                let weights = pow(abs(normal), vec3<f32>(8.0));
+                let weightSum = weights.x + weights.y + weights.z;
+                let normalizedWeights = weights / max(weightSum, 0.001);
+                
+                // Calculate gradients for each plane
+                var normalX = vec3<f32>(0.0);
+                var normalY = vec3<f32>(0.0);
+                var normalZ = vec3<f32>(0.0);
+                
+                if (normalizedWeights.x > 0.001) {
+                    let h1 = triplanarNoise(worldPos + vec3<f32>(0.0, eps, 0.0), normal, scale, 3);
+                    let h2 = triplanarNoise(worldPos - vec3<f32>(0.0, eps, 0.0), normal, scale, 3);
+                    let h3 = triplanarNoise(worldPos + vec3<f32>(0.0, 0.0, eps), normal, scale, 3);
+                    let h4 = triplanarNoise(worldPos - vec3<f32>(0.0, 0.0, eps), normal, scale, 3);
+                    normalX = vec3<f32>(0.0, (h1 - h2) / (2.0 * eps), (h3 - h4) / (2.0 * eps)) * strength;
+                }
+                
+                if (normalizedWeights.y > 0.001) {
+                    let h1 = triplanarNoise(worldPos + vec3<f32>(eps, 0.0, 0.0), normal, scale, 3);
+                    let h2 = triplanarNoise(worldPos - vec3<f32>(eps, 0.0, 0.0), normal, scale, 3);
+                    let h3 = triplanarNoise(worldPos + vec3<f32>(0.0, 0.0, eps), normal, scale, 3);
+                    let h4 = triplanarNoise(worldPos - vec3<f32>(0.0, 0.0, eps), normal, scale, 3);
+                    normalY = vec3<f32>((h1 - h2) / (2.0 * eps), 0.0, (h3 - h4) / (2.0 * eps)) * strength;
+                }
+                
+                if (normalizedWeights.z > 0.001) {
+                    let h1 = triplanarNoise(worldPos + vec3<f32>(eps, 0.0, 0.0), normal, scale, 3);
+                    let h2 = triplanarNoise(worldPos - vec3<f32>(eps, 0.0, 0.0), normal, scale, 3);
+                    let h3 = triplanarNoise(worldPos + vec3<f32>(0.0, eps, 0.0), normal, scale, 3);
+                    let h4 = triplanarNoise(worldPos - vec3<f32>(0.0, eps, 0.0), normal, scale, 3);
+                    normalZ = vec3<f32>((h1 - h2) / (2.0 * eps), (h3 - h4) / (2.0 * eps), 0.0) * strength;
+                }
+                
+                let perturbedNormal = normalX * normalizedWeights.x + normalY * normalizedWeights.y + normalZ * normalizedWeights.z;
+                return normalize(normal + perturbedNormal);
             }
             
             struct VertexInput {
@@ -455,229 +521,633 @@ export class TerrainRenderer {
                 return shadowSum / sampleCount;
             }
             
-            fn getBiomeColor(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
-                let id = i32(materialId);
+            // Structure for PBR material properties
+            struct MaterialPBR {
+                albedo: vec3<f32>,
+                roughness: f32,
+                metalness: f32,
+                normal: vec3<f32>,
+                ao: f32,
+            };
+            
+            // Get material properties for a specific material ID
+            fn getSingleMaterialPBR(materialId: i32, elevation: f32, worldPos: vec3<f32>, time: f32, normal: vec3<f32>, detailScale: f32) -> MaterialPBR {
+                var material: MaterialPBR;
                 
-                // Natural biome colors with realistic earth tones
-                var baseColor: vec3<f32>;
-                switch (id) {
-                    case 0: { baseColor = vec3<f32>(0.05, 0.3, 0.6); }     // Ocean - deep blue
-                    case 1: { 
-                        // Beach - natural sand with improved triplanar noise
-                        baseColor = vec3<f32>(0.7, 0.6, 0.45);
-                        let sandNoise = triplanarNoise(worldPos, normal, 0.017, 3) * 0.08;
-                        baseColor += vec3<f32>(sandNoise, sandNoise * 0.8, sandNoise * 0.6);
+                // Calculate enhanced surface normal with detail
+                let enhancedNormal = triplanarNormal(worldPos, normal, detailScale * 2.0, 0.3);
+                material.normal = enhancedNormal;
+                
+                // Material-specific properties
+                switch (materialId) {
+                    case 0: { // Ocean
+                        material.albedo = getOceanTexture(worldPos, time, normal);
+                        material.roughness = 0.05;
+                        material.metalness = 0.0;
+                        material.ao = 1.0;
                     }
-                    case 2: { 
-                        // Grassland - enhanced with tiling grass texture
-                        baseColor = getGrasslandTexture(worldPos, time, normal);
+                    case 1: { // Beach/Sand
+                        material.albedo = getBeachTexture(worldPos, normal, detailScale);
+                        material.roughness = 0.8;
+                        material.metalness = 0.0;
+                        material.ao = getSandAO(worldPos, normal);
                     }
-                    case 3: { 
-                        // Forest - rich soil with organic variation
-                        baseColor = getForestFloorTexture(worldPos, elevation, normal);
+                    case 2: { // Grassland
+                        material.albedo = getGrasslandTexturePBR(worldPos, time, normal, detailScale);
+                        material.roughness = 0.9;
+                        material.metalness = 0.0;
+                        material.ao = getGrassAO(worldPos, normal);
                     }
-                    case 4: { 
-                        // Desert - enhanced sand texture
-                        baseColor = getDesertTexture(worldPos, normal);
+                    case 3: { // Forest
+                        material.albedo = getForestFloorTexturePBR(worldPos, elevation, normal, detailScale);
+                        material.roughness = 0.8;
+                        material.metalness = 0.0;
+                        material.ao = getForestAO(worldPos, normal);
                     }
-                    case 5: { 
-                        // Mountain - rocky texture with mineral variation
-                        baseColor = getMountainTexture(worldPos, elevation, normal);
+                    case 4: { // Desert
+                        material.albedo = getDesertTexturePBR(worldPos, normal, detailScale);
+                        material.roughness = 0.9;
+                        material.metalness = 0.0;
+                        material.ao = getDesertAO(worldPos, normal);
                     }
-                    case 6: { 
-                        // Snow - pure white with subtle blue tint and sparkle
-                        baseColor = getSnowTexture(worldPos, time, normal);
+                    case 5: { // Mountain/Rock
+                        material.albedo = getMountainTexturePBR(worldPos, elevation, normal, detailScale);
+                        material.roughness = 0.7;
+                        material.metalness = 0.1;
+                        material.ao = getRockAO(worldPos, normal);
                     }
-                    case 7: { 
-                        // Tundra - frozen soil with sparse vegetation
-                        baseColor = getTundraTexture(worldPos, normal);
+                    case 6: { // Snow
+                        material.albedo = getSnowTexturePBR(worldPos, time, normal, detailScale);
+                        material.roughness = 0.1;
+                        material.metalness = 0.0;
+                        material.ao = getSnowAO(worldPos, normal);
                     }
-                    case 8: { 
-                        // Wetland - muddy terrain with organic matter
-                        baseColor = getWetlandTexture(worldPos, normal);
+                    case 7: { // Tundra
+                        material.albedo = getTundraTexturePBR(worldPos, normal, detailScale);
+                        material.roughness = 0.85;
+                        material.metalness = 0.0;
+                        material.ao = getTundraAO(worldPos, normal);
                     }
-                    case 9: { baseColor = vec3<f32>(0.8, 0.8, 0.8); }       // Urban - light gray
-                    case 10: { baseColor = vec3<f32>(0.2, 0.6, 1.0); }      // Lake - bright blue
-                    case 11: { baseColor = vec3<f32>(0.3, 0.7, 1.0); }      // River - flowing blue
-                    default: { baseColor = getGrasslandTexture(worldPos, time, normal); } // Default grassland
+                    case 8: { // Wetland
+                        material.albedo = getWetlandTexturePBR(worldPos, normal, detailScale);
+                        material.roughness = 0.3;
+                        material.metalness = 0.0;
+                        material.ao = getWetlandAO(worldPos, normal);
+                    }
+                    case 9: { // Urban
+                        material.albedo = vec3<f32>(0.8, 0.8, 0.8);
+                        material.roughness = 0.4;
+                        material.metalness = 0.1;
+                        material.ao = 1.0;
+                    }
+                    case 10: { // Lake
+                        material.albedo = getLakeTexture(worldPos, time, normal);
+                        material.roughness = 0.02;
+                        material.metalness = 0.0;
+                        material.ao = 1.0;
+                    }
+                    case 11: { // River
+                        material.albedo = getRiverTexture(worldPos, time, normal);
+                        material.roughness = 0.05;
+                        material.metalness = 0.0;
+                        material.ao = 1.0;
+                    }
+                    default: { // Default grassland
+                        material.albedo = getGrasslandTexturePBR(worldPos, time, normal, detailScale);
+                        material.roughness = 0.9;
+                        material.metalness = 0.0;
+                        material.ao = getGrassAO(worldPos, normal);
+                    }
                 }
                 
-                // Add elevation-based variation for more realism
+                return material;
+            }
+            
+            // Blend two materials smoothly
+            fn blendMaterials(mat1: MaterialPBR, mat2: MaterialPBR, blendFactor: f32) -> MaterialPBR {
+                var result: MaterialPBR;
+                let factor = clamp(blendFactor, 0.0, 1.0);
+                
+                result.albedo = mix(mat1.albedo, mat2.albedo, factor);
+                result.roughness = mix(mat1.roughness, mat2.roughness, factor);
+                result.metalness = mix(mat1.metalness, mat2.metalness, factor);
+                result.ao = mix(mat1.ao, mat2.ao, factor);
+                result.normal = normalize(mix(mat1.normal, mat2.normal, factor));
+                
+                return result;
+            }
+            
+            // Enhanced material generation with smooth biome blending
+            fn getMaterialPBR(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> MaterialPBR {
+                let primaryId = i32(materialId);
+                
+                // Initialize common values
+                let distance = length(uniforms.cameraPosition - worldPos);
+                let detailScale = mix(0.1, 0.02, clamp(distance / 1000.0, 0.0, 1.0));
+                
+                // Get primary material
+                var material = getSingleMaterialPBR(primaryId, elevation, worldPos, time, normal, detailScale);
+                
+                // Generate blending pattern for smooth biome transitions
+                let blendScale = 0.0008; // Large scale for biome transitions
+                let blendNoise = fbm(worldPos, 4, 0.6, 1.8) * blendScale;
+                let blendStrength = 0.15; // How strong the blending effect is
+                
+                // Determine secondary material based on elevation and environmental factors
+                var secondaryId = primaryId;
+                var blendWeight = 0.0;
+                
+                // Elevation-based transitions
+                if (elevation > 600.0 && (primaryId == 2 || primaryId == 3)) {
+                    // Grassland/Forest to Mountain transition
+                    secondaryId = 5;
+                    blendWeight = smoothstep(600.0, 1000.0, elevation) * blendStrength;
+                } else if (elevation > 1200.0 && primaryId == 5) {
+                    // Mountain to Snow transition
+                    secondaryId = 6;
+                    blendWeight = smoothstep(1200.0, 1600.0, elevation) * blendStrength;
+                } else if (elevation < 50.0 && (primaryId == 2 || primaryId == 4)) {
+                    // Grassland/Desert to Beach transition
+                    secondaryId = 1;
+                    blendWeight = smoothstep(50.0, 10.0, elevation) * blendStrength;
+                }
+                
+                // Environmental transitions based on noise
+                let environmentalBlend = abs(blendNoise);
+                if (environmentalBlend > 0.7) {
+                    if (primaryId == 2) {
+                        // Grassland can transition to forest or wetland
+                        secondaryId = select(3, 8, blendNoise > 0.0);
+                        blendWeight = smoothstep(0.7, 0.9, environmentalBlend) * blendStrength * 0.8;
+                    } else if (primaryId == 4 && uniforms.precipitationFactor > 0.3) {
+                        // Desert can transition to grassland in higher precipitation
+                        secondaryId = 2;
+                        blendWeight = smoothstep(0.7, 0.9, environmentalBlend) * blendStrength * uniforms.precipitationFactor;
+                    }
+                }
+                
+                // Apply blending if we have a secondary material
+                if (secondaryId != primaryId && blendWeight > 0.001) {
+                    let secondaryMaterial = getSingleMaterialPBR(secondaryId, elevation, worldPos, time, normal, detailScale);
+                    
+                    // Modulate blend weight with noise for organic transitions
+                    let noiseModulation = fbm(worldPos * 0.002, 3, 0.5, 2.0) * 0.5 + 0.5;
+                    let finalBlendWeight = blendWeight * noiseModulation;
+                    
+                    material = blendMaterials(material, secondaryMaterial, finalBlendWeight);
+                }
+                
+                // Apply elevation-based variation
+                material = applyElevationEffects(material, elevation, primaryId);
+                
+                return material;
+            }
+            
+            // Legacy function for compatibility - extracts albedo from PBR material
+            fn getBiomeColor(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
+                let material = getMaterialPBR(materialId, elevation, worldPos, time, normal);
+                return material.albedo;
+            }
+            
+            // Apply elevation-based effects to materials
+            fn applyElevationEffects(material: MaterialPBR, elevation: f32, materialId: i32) -> MaterialPBR {
+                var result = material;
                 let elevationFactor = clamp(elevation / 1000.0, 0.0, 1.0);
                 
                 // Grassland and forest get brown tints at higher elevation
-                if (id == 2 || id == 3) {
+                if (materialId == 2 || materialId == 3) {
                     let brownTint = vec3<f32>(0.6, 0.4, 0.2);
-                    baseColor = mix(baseColor, brownTint, elevationFactor * 0.3);
+                    result.albedo = mix(result.albedo, brownTint, elevationFactor * 0.3);
+                    result.roughness = mix(result.roughness, 0.95, elevationFactor * 0.2);
                 }
                 
                 // Mountains get snow caps
-                if (id == 5 && elevation > 800.0) {
+                if (materialId == 5 && elevation > 800.0) {
                     let snowColor = vec3<f32>(0.95, 0.95, 1.0);
                     let snowFactor = clamp((elevation - 800.0) / 200.0, 0.0, 1.0);
-                    baseColor = mix(baseColor, snowColor, snowFactor);
+                    result.albedo = mix(result.albedo, snowColor, snowFactor);
+                    result.roughness = mix(result.roughness, 0.1, snowFactor);
+                    result.metalness = mix(result.metalness, 0.0, snowFactor);
                 }
                 
-                return baseColor;
+                return result;
             }
             
-            // Grass texture with seasonal variation and natural colors
-            fn getGrasslandTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
-                let scale1 = 0.02;
-                let scale2 = 0.08;
-                let scale3 = 0.15;
+            // Enhanced PBR grassland texture with micro details
+            fn getGrasslandTexturePBR(worldPos: vec3<f32>, time: f32, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                // Multi-scale texture sampling for realistic grass appearance
+                let baseScale = detailScale * 0.5;
+                let microScale = detailScale * 4.0;
+                let macroScale = detailScale * 0.1;
                 
-                // Natural grass colors - more muted and realistic
-                let springGreen = vec3<f32>(0.3, 0.6, 0.2);   // Fresh spring green
-                let summerGreen = vec3<f32>(0.25, 0.5, 0.18); // Mature summer green
-                let autumnBrown = vec3<f32>(0.45, 0.35, 0.15); // Autumn gold
-                let winterBrown = vec3<f32>(0.3, 0.25, 0.15);  // Winter dormant
+                // Natural grass colors - calibrated to real-world values
+                let springGreen = vec3<f32>(0.25, 0.5, 0.15);
+                let summerGreen = vec3<f32>(0.2, 0.45, 0.12);
+                let autumnBrown = vec3<f32>(0.4, 0.32, 0.12);
+                let winterBrown = vec3<f32>(0.28, 0.22, 0.12);
                 
-                let darkGreen = vec3<f32>(0.15, 0.4, 0.1);
-                let lightGreen = vec3<f32>(0.35, 0.6, 0.25);
-                let brownPatch = vec3<f32>(0.3, 0.22, 0.08);
+                let darkSoil = vec3<f32>(0.12, 0.08, 0.04);
+                let lightGrass = vec3<f32>(0.3, 0.55, 0.2);
+                let dryGrass = vec3<f32>(0.35, 0.28, 0.1);
                 
-                // Multi-scale noise for grass variation using improved noise
-                let noise1 = triplanarNoise(worldPos, normal, scale1, 2);
-                let noise2 = triplanarNoise(worldPos, normal, scale2, 2);
-                let noise3 = triplanarNoise(worldPos + vec3<f32>(time * 2.0, 0.0, 0.0), normal, scale3, 2);
+                // Multi-octave noise patterns for organic variation
+                let grassDensity = fbm(worldPos, 5, 0.6, 2.1) * baseScale;
+                let grassPatches = fbm(worldPos * 0.5, 3, 0.7, 1.8) * baseScale;
+                let microDetail = fbm(worldPos, 8, 0.4, 2.5) * microScale;
+                let soilExposure = smoothstep(-0.3, 0.1, fbm(worldPos * 0.3, 4, 0.5, 2.0));
                 
-                // Combine noise layers
-                let grassDensity = (noise1 + noise2 * 0.5 + noise3 * 0.3) * 0.5 + 0.5;
-                let brownPatches = smoothstep(0.3, 0.4, noise2);
+                // Seasonal color calculation
+                let seasonCycle = uniforms.seasonFactor * 4.0;
+                var seasonalBase: vec3<f32>;
                 
-                // Apply seasonal variation
-                let seasonCycle = uniforms.seasonFactor * 4.0; // Convert to 0-4 range
-                var seasonalGrassColor: vec3<f32>;
-                
-                if (seasonCycle < 1.0) {        // Spring
-                    seasonalGrassColor = mix(winterBrown, springGreen, seasonCycle);
-                } else if (seasonCycle < 2.0) { // Summer
-                    seasonalGrassColor = mix(springGreen, summerGreen, seasonCycle - 1.0);
-                } else if (seasonCycle < 3.0) { // Autumn
-                    seasonalGrassColor = mix(summerGreen, autumnBrown, seasonCycle - 2.0);
-                } else {                        // Winter
-                    seasonalGrassColor = mix(autumnBrown, winterBrown, seasonCycle - 3.0);
+                if (seasonCycle < 1.0) {
+                    seasonalBase = mix(winterBrown, springGreen, smoothstep(0.0, 1.0, seasonCycle));
+                } else if (seasonCycle < 2.0) {
+                    seasonalBase = mix(springGreen, summerGreen, smoothstep(0.0, 1.0, seasonCycle - 1.0));
+                } else if (seasonCycle < 3.0) {
+                    seasonalBase = mix(summerGreen, autumnBrown, smoothstep(0.0, 1.0, seasonCycle - 2.0));
+                } else {
+                    seasonalBase = mix(autumnBrown, winterBrown, smoothstep(0.0, 1.0, seasonCycle - 3.0));
                 }
                 
-                // Color mixing with seasonal base
-                var grassColor = mix(darkGreen * 0.7, seasonalGrassColor, grassDensity);
-                grassColor = mix(grassColor, lightGreen * 0.8, max(0.0, noise3) * 0.3);
-                grassColor = mix(grassColor, brownPatch, brownPatches * 0.2);
+                // Build complex grass texture
+                var grassColor = seasonalBase;
                 
-                // Temperature and precipitation effects
+                // Add grass density variation
+                grassColor = mix(darkSoil, grassColor, clamp(grassDensity * 0.5 + 0.7, 0.0, 1.0));
+                
+                // Add light and dark grass patches
+                grassColor = mix(grassColor, lightGrass, max(0.0, grassPatches) * 0.2);
+                grassColor = mix(grassColor, dryGrass, max(0.0, -grassPatches) * 0.15);
+                
+                // Expose soil in sparse areas
+                grassColor = mix(grassColor, darkSoil, soilExposure * 0.3);
+                
+                // Add micro surface detail
+                grassColor += vec3<f32>(microDetail) * 0.05;
+                
+                // Environmental effects
                 let coldEffect = clamp(-uniforms.temperatureFactor, 0.0, 1.0);
                 let dryEffect = clamp(1.0 - uniforms.precipitationFactor, 0.0, 1.0);
                 
-                // Cold makes grass more brown/dead
-                grassColor = mix(grassColor, vec3<f32>(0.4, 0.3, 0.2), coldEffect * 0.3);
-                // Dry conditions make grass less vibrant
-                grassColor *= mix(1.0, 0.7, dryEffect * 0.5);
+                // Cold reduces saturation and shifts toward brown
+                grassColor = mix(grassColor, vec3<f32>(0.35, 0.28, 0.15), coldEffect * 0.4);
+                // Dry conditions reduce vibrancy and add yellow tint
+                grassColor = mix(grassColor, grassColor * vec3<f32>(1.2, 1.0, 0.7), dryEffect * 0.3);
+                grassColor *= mix(1.0, 0.8, dryEffect * 0.5);
                 
-                return grassColor;
+                return clamp(grassColor, vec3<f32>(0.0), vec3<f32>(1.0));
             }
             
-            // Forest floor texture with rich organic variation
-            fn getForestFloorTexture(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>) -> vec3<f32> {
-                let soilBrown = vec3<f32>(0.18, 0.12, 0.06);
-                let leafLitter = vec3<f32>(0.3, 0.2, 0.08);
-                let mossGreen = vec3<f32>(0.08, 0.25, 0.1);
-                let darkSoil = vec3<f32>(0.1, 0.08, 0.04);
-                
-                let noise1 = triplanarNoise(worldPos, normal, 0.023, 3);
-                let noise2 = triplanarNoise(worldPos, normal, 0.087, 2);
-                
-                // Moss in damper areas
-                let mossAreas = smoothstep(0.2, 0.6, noise1);
-                
-                var forestColor = mix(soilBrown, leafLitter, noise2 * 0.5 + 0.5);
-                forestColor = mix(forestColor, mossGreen, mossAreas * 0.4);
-                forestColor = mix(forestColor, darkSoil, max(0.0, -noise2) * 0.3);
-                
-                return forestColor;
+            // Ambient occlusion for grass (cavities between grass blades)
+            fn getGrassAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoNoise = fbm(worldPos, 4, 0.5, 2.0) * 0.15;
+                return clamp(0.7 + aoNoise, 0.3, 1.0);
             }
             
-            // Desert sand texture with natural dune patterns
-            fn getDesertTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-                let lightSand = vec3<f32>(0.7, 0.6, 0.4);
-                let darkSand = vec3<f32>(0.55, 0.45, 0.25);
-                let redSand = vec3<f32>(0.6, 0.35, 0.15);
+            // Enhanced forest floor texture with detailed organic materials
+            fn getForestFloorTexturePBR(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let richSoil = vec3<f32>(0.15, 0.1, 0.05);
+                let leafLitter = vec3<f32>(0.28, 0.18, 0.08);
+                let freshLeaves = vec3<f32>(0.25, 0.15, 0.06);
+                let mossGreen = vec3<f32>(0.06, 0.2, 0.08);
+                let darkHumus = vec3<f32>(0.08, 0.05, 0.03);
+                let rottenWood = vec3<f32>(0.2, 0.12, 0.06);
                 
-                let noise1 = triplanarNoise(worldPos, normal, 0.011, 4);
-                let noise2 = triplanarNoise(worldPos, normal, 0.053, 2);
+                // Multi-scale organic patterns
+                let litterPattern = fbm(worldPos, 6, 0.65, 2.0) * detailScale;
+                let mossPattern = fbm(worldPos * 1.3, 5, 0.6, 1.9) * detailScale;
+                let soilPattern = fbm(worldPos * 0.7, 4, 0.7, 2.1) * detailScale;
+                let decomposition = fbm(worldPos * 2.1, 7, 0.45, 2.3) * detailScale;
                 
-                var sandColor = mix(lightSand, darkSand, noise1 * 0.3 + 0.5);
-                sandColor = mix(sandColor, redSand, max(0.0, noise2) * 0.2);
+                // Base forest floor color
+                var forestColor = mix(richSoil, leafLitter, clamp(litterPattern * 0.7 + 0.5, 0.0, 1.0));
                 
-                return sandColor;
+                // Add moss in humid areas
+                let mossiness = smoothstep(-0.2, 0.4, mossPattern) * uniforms.precipitationFactor;
+                forestColor = mix(forestColor, mossGreen, mossiness * 0.4);
+                
+                // Add fresh and decomposing leaf patches
+                forestColor = mix(forestColor, freshLeaves, max(0.0, litterPattern) * 0.3);
+                forestColor = mix(forestColor, darkHumus, smoothstep(0.2, 0.6, decomposition) * 0.2);
+                
+                // Add rotting wood debris
+                let woodDebris = smoothstep(0.6, 0.8, abs(soilPattern));
+                forestColor = mix(forestColor, rottenWood, woodDebris * 0.15);
+                
+                // Dark soil in low areas (better drainage)
+                forestColor = mix(forestColor, darkHumus, max(0.0, -soilPattern) * 0.25);
+                
+                // Seasonal effects
+                let autumnFactor = max(0.0, sin(uniforms.seasonFactor * 2.0 * 3.14159));
+                let autumnLeaves = vec3<f32>(0.6, 0.3, 0.1);
+                forestColor = mix(forestColor, autumnLeaves, autumnFactor * max(0.0, litterPattern) * 0.2);
+                
+                return clamp(forestColor, vec3<f32>(0.0), vec3<f32>(1.0));
             }
             
-            // Mountain rocky texture with realistic stone colors
-            fn getMountainTexture(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>) -> vec3<f32> {
-                let grayRock = vec3<f32>(0.45, 0.45, 0.5);
-                let darkRock = vec3<f32>(0.3, 0.3, 0.35);
-                let brownRock = vec3<f32>(0.35, 0.28, 0.2);
-                let slate = vec3<f32>(0.25, 0.28, 0.32);
-                
-                let noise1 = triplanarNoise(worldPos, normal, 0.009, 3);
-                let noise2 = triplanarNoise(worldPos, normal, 0.031, 2);
-                
-                var rockColor = mix(grayRock, darkRock, noise1 * 0.5 + 0.5);
-                rockColor = mix(rockColor, brownRock, max(0.0, noise2) * 0.3);
-                rockColor = mix(rockColor, slate, smoothstep(800.0, 1200.0, elevation) * 0.4);
-                
-                return rockColor;
+            fn getForestAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoPattern = fbm(worldPos, 5, 0.6, 2.0) * 0.2;
+                return clamp(0.6 + aoPattern, 0.4, 1.0);  // Darker due to canopy shade
             }
             
-            // Snow texture with natural variations
-            fn getSnowTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
-                let pureWhite = vec3<f32>(0.9, 0.9, 0.95);
-                let blueSnow = vec3<f32>(0.8, 0.85, 0.9);
-                let sparkle = vec3<f32>(0.95, 0.95, 0.98);
+            // Enhanced desert texture with realistic sand patterns
+            fn getDesertTexturePBR(worldPos: vec3<f32>, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let fineSand = vec3<f32>(0.75, 0.65, 0.45);
+                let coarseSand = vec3<f32>(0.65, 0.55, 0.35);
+                let redSand = vec3<f32>(0.7, 0.45, 0.25);
+                let darkSand = vec3<f32>(0.5, 0.4, 0.25);
+                let rockDust = vec3<f32>(0.6, 0.5, 0.4);
                 
-                let noise1 = triplanarNoise(worldPos + vec3<f32>(time * 1.0, 0.0, 0.0), normal, 0.11, 2);
-                let sparkleNoise = triplanarNoise(worldPos + vec3<f32>(time * 0.5, time * 0.3, 0.0), normal, 0.19, 1);
+                // Multi-scale sand patterns
+                let dunePattern = fbm(worldPos * 0.3, 4, 0.7, 1.8) * detailScale;
+                let windRipples = fbm(worldPos * 3.0, 6, 0.4, 2.2) * detailScale;
+                let grainDetail = fbm(worldPos, 8, 0.3, 2.5) * detailScale;
+                let ironStaining = fbm(worldPos * 0.8, 3, 0.8, 1.7) * detailScale;
                 
-                var snowColor = mix(pureWhite, blueSnow, noise1 * 0.2 + 0.3);
-                let sparkleEffect = smoothstep(0.7, 0.9, sparkleNoise);
-                snowColor = mix(snowColor, sparkle, sparkleEffect * 0.1);
+                // Base sand color with wind patterns
+                var sandColor = mix(fineSand, coarseSand, clamp(dunePattern * 0.6 + 0.4, 0.0, 1.0));
                 
-                return snowColor;
+                // Add wind ripple patterns
+                sandColor = mix(sandColor, darkSand, abs(windRipples) * 0.15);
+                
+                // Iron oxide staining creates red patches
+                sandColor = mix(sandColor, redSand, smoothstep(0.3, 0.7, ironStaining) * 0.3);
+                
+                // Rock dust in exposed areas
+                let rockExposure = smoothstep(0.4, 0.8, abs(dunePattern));
+                sandColor = mix(sandColor, rockDust, rockExposure * 0.2);
+                
+                // Fine grain surface detail
+                sandColor += vec3<f32>(grainDetail) * 0.03;
+                
+                // Temperature effects (hotter = more bleached)
+                let heatEffect = clamp(uniforms.temperatureFactor, 0.0, 1.0);
+                sandColor = mix(sandColor, sandColor * vec3<f32>(1.1, 1.05, 0.95), heatEffect * 0.2);
+                
+                return clamp(sandColor, vec3<f32>(0.0), vec3<f32>(1.0));
             }
             
-            // Tundra frozen ground texture
-            fn getTundraTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-                let frozenSoil = vec3<f32>(0.5, 0.5, 0.45);
-                let permafrost = vec3<f32>(0.4, 0.45, 0.5);
-                let deadGrass = vec3<f32>(0.6, 0.5, 0.3);
-                
-                let noise1 = triplanarNoise(worldPos, normal, 0.021, 3);
-                let noise2 = triplanarNoise(worldPos, normal, 0.083, 2);
-                
-                var tundraColor = mix(frozenSoil, permafrost, noise1 * 0.4 + 0.5);
-                tundraColor = mix(tundraColor, deadGrass, max(0.0, noise2) * 0.3);
-                
-                return tundraColor;
+            fn getDesertAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoNoise = fbm(worldPos, 3, 0.7, 2.0) * 0.1;
+                return clamp(0.85 + aoNoise, 0.7, 1.0);  // High AO due to open exposure
             }
             
-            // Wetland muddy texture
-            fn getWetlandTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-                let darkMud = vec3<f32>(0.2, 0.15, 0.1);
-                let wetSoil = vec3<f32>(0.3, 0.25, 0.15);
-                let organicMatter = vec3<f32>(0.15, 0.2, 0.1);
-                let waterReflection = vec3<f32>(0.4, 0.5, 0.6);
+            // Enhanced mountain rocky texture with geological realism
+            fn getMountainTexturePBR(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let granite = vec3<f32>(0.6, 0.55, 0.5);
+                let basalt = vec3<f32>(0.25, 0.25, 0.3);
+                let limestone = vec3<f32>(0.7, 0.65, 0.6);
+                let slate = vec3<f32>(0.3, 0.32, 0.35);
+                let weatheredRock = vec3<f32>(0.5, 0.45, 0.4);
+                let mossyRock = vec3<f32>(0.4, 0.5, 0.35);
+                let lichens = vec3<f32>(0.6, 0.6, 0.4);
                 
-                let noise1 = triplanarNoise(worldPos, normal, 0.041, 3);
-                let noise2 = triplanarNoise(worldPos, normal, 0.151, 2);
+                // Geological stratification patterns
+                let stratification = fbm(worldPos * vec3<f32>(0.1, 2.0, 0.1), 5, 0.6, 2.0) * detailScale;
+                let weathering = fbm(worldPos, 6, 0.5, 2.1) * detailScale;
+                let fractures = fbm(worldPos * 2.0, 7, 0.4, 2.3) * detailScale;
+                let alteration = fbm(worldPos * 0.5, 4, 0.7, 1.9) * detailScale;
                 
-                var wetlandColor = mix(darkMud, wetSoil, noise1 * 0.5 + 0.5);
-                wetlandColor = mix(wetlandColor, organicMatter, max(0.0, noise2) * 0.4);
+                // Base rock type based on elevation and patterns
+                var rockColor: vec3<f32>;
+                let elevationFactor = clamp(elevation / 2000.0, 0.0, 1.0);
                 
-                // Add subtle water reflection in very wet areas
-                let wateriness = smoothstep(0.5, 0.8, noise1);
-                wetlandColor = mix(wetlandColor, waterReflection, wateriness * 0.15);
+                // Lower elevations: sedimentary rocks
+                if (elevationFactor < 0.3) {
+                    rockColor = mix(limestone, slate, clamp(stratification * 0.8 + 0.3, 0.0, 1.0));
+                }
+                // Mid elevations: metamorphic rocks
+                else if (elevationFactor < 0.7) {
+                    rockColor = mix(slate, granite, clamp(alteration * 0.6 + 0.4, 0.0, 1.0));
+                }
+                // High elevations: igneous rocks
+                else {
+                    rockColor = mix(granite, basalt, clamp(fractures * 0.7 + 0.2, 0.0, 1.0));
+                }
                 
-                return wetlandColor;
+                // Weather-based alterations
+                let weatheringIntensity = clamp(weathering * 0.8 + 0.2, 0.0, 1.0);
+                rockColor = mix(rockColor, weatheredRock, weatheringIntensity * 0.3);
+                
+                // Biological growth in humid conditions
+                let humidity = uniforms.precipitationFactor;
+                let biologicalGrowth = smoothstep(0.2, 0.8, alteration * humidity);
+                rockColor = mix(rockColor, mossyRock, biologicalGrowth * 0.2);
+                
+                // Lichen growth on exposed surfaces
+                let lichensGrowth = smoothstep(0.6, 0.9, abs(fractures)) * humidity;
+                rockColor = mix(rockColor, lichens, lichensGrowth * 0.15);
+                
+                // Fracture darkening
+                rockColor = mix(rockColor, basalt, smoothstep(0.7, 0.9, abs(fractures)) * 0.2);
+                
+                return clamp(rockColor, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            fn getRockAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let creviceNoise = fbm(worldPos, 6, 0.5, 2.2) * 0.25;
+                return clamp(0.6 + creviceNoise, 0.3, 1.0);  // Deep crevices create shadows
+            }
+            
+            // Enhanced snow texture with realistic ice crystal patterns
+            fn getSnowTexturePBR(worldPos: vec3<f32>, time: f32, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let freshSnow = vec3<f32>(0.95, 0.95, 0.98);
+                let oldSnow = vec3<f32>(0.85, 0.87, 0.9);
+                let blueSnow = vec3<f32>(0.8, 0.85, 0.92);
+                let dirtySonw = vec3<f32>(0.7, 0.72, 0.75);
+                let iceyCrust = vec3<f32>(0.9, 0.92, 0.95);
+                
+                // Snow crystal and density patterns
+                let snowDensity = fbm(worldPos, 5, 0.6, 2.0) * detailScale;
+                let iceFormation = fbm(worldPos * 1.5, 4, 0.7, 1.9) * detailScale;
+                let windPacking = fbm(worldPos * 2.5, 6, 0.4, 2.3) * detailScale;
+                let contamination = fbm(worldPos * 0.7, 3, 0.8, 1.8) * detailScale;
+                
+                // Base snow color with age variation
+                var snowColor = mix(freshSnow, oldSnow, clamp(snowDensity * 0.5 + 0.3, 0.0, 1.0));
+                
+                // Blue tint in shadows and compacted areas
+                let shadowTint = smoothstep(-0.2, 0.2, snowDensity);
+                snowColor = mix(snowColor, blueSnow, shadowTint * 0.3);
+                
+                // Ice crust formation in wind-exposed areas
+                let iceCrust = smoothstep(0.4, 0.8, abs(windPacking));
+                snowColor = mix(snowColor, iceyCrust, iceCrust * 0.4);
+                
+                // Dirt and debris contamination
+                let dirtiness = smoothstep(0.3, 0.7, contamination);
+                snowColor = mix(snowColor, dirtySonw, dirtiness * 0.2);
+                
+                // Micro-surface sparkle (subtle)
+                let sparklePattern = fbm(worldPos + vec3<f32>(time * 0.1, 0.0, 0.0), 8, 0.3, 2.7) * detailScale;
+                snowColor += vec3<f32>(max(0.0, sparklePattern)) * 0.02;
+                
+                return clamp(snowColor, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            fn getSnowAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let driftNoise = fbm(worldPos, 4, 0.6, 2.0) * 0.1;
+                return clamp(0.9 + driftNoise, 0.8, 1.0);  // High AO, slight drifting shadows
+            }
+            
+            // Enhanced tundra texture with permafrost characteristics
+            fn getTundraTexturePBR(worldPos: vec3<f32>, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let permafrost = vec3<f32>(0.45, 0.5, 0.55);
+                let frozenSoil = vec3<f32>(0.4, 0.35, 0.3);
+                let deadVegetation = vec3<f32>(0.5, 0.4, 0.25);
+                let ice = vec3<f32>(0.7, 0.75, 0.8);
+                let organicLayer = vec3<f32>(0.3, 0.25, 0.2);
+                
+                // Tundra-specific patterns
+                let frostHeave = fbm(worldPos * 0.8, 5, 0.6, 2.0) * detailScale;
+                let polygonPattern = fbm(worldPos * 0.3, 4, 0.7, 1.8) * detailScale;
+                let vegetationSpots = fbm(worldPos * 1.2, 6, 0.5, 2.2) * detailScale;
+                let iceContent = fbm(worldPos * 2.0, 7, 0.4, 2.1) * detailScale;
+                
+                // Base permafrost color
+                var tundraColor = mix(permafrost, frozenSoil, clamp(frostHeave * 0.6 + 0.4, 0.0, 1.0));
+                
+                // Polygon ground patterns (thermal contraction)
+                let polygons = smoothstep(0.2, 0.6, abs(polygonPattern));
+                tundraColor = mix(tundraColor, organicLayer, polygons * 0.3);
+                
+                // Sparse dead vegetation
+                let vegetation = smoothstep(0.3, 0.7, vegetationSpots);
+                tundraColor = mix(tundraColor, deadVegetation, vegetation * 0.4);
+                
+                // Surface ice patches
+                let icePatches = smoothstep(0.6, 0.9, abs(iceContent));
+                tundraColor = mix(tundraColor, ice, icePatches * 0.2);
+                
+                // Cold temperature effects
+                let coldEffect = clamp(-uniforms.temperatureFactor, 0.0, 1.0);
+                tundraColor = mix(tundraColor, tundraColor * vec3<f32>(0.9, 0.95, 1.1), coldEffect * 0.2);
+                
+                return clamp(tundraColor, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            fn getTundraAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoNoise = fbm(worldPos, 4, 0.5, 2.0) * 0.15;
+                return clamp(0.75 + aoNoise, 0.6, 1.0);
+            }
+            
+            // Enhanced wetland texture with organic sediment layers
+            fn getWetlandTexturePBR(worldPos: vec3<f32>, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let darkMud = vec3<f32>(0.15, 0.12, 0.08);
+                let richSilt = vec3<f32>(0.25, 0.2, 0.12);
+                let organicSediment = vec3<f32>(0.12, 0.15, 0.08);
+                let clayDeposit = vec3<f32>(0.3, 0.25, 0.2);
+                let waterSurface = vec3<f32>(0.2, 0.3, 0.4);
+                let algaeGrowth = vec3<f32>(0.1, 0.3, 0.15);
+                
+                // Wetland sedimentation patterns
+                let sedimentLayers = fbm(worldPos * vec3<f32>(1.0, 0.2, 1.0), 5, 0.6, 2.0) * detailScale;
+                let organicDeposits = fbm(worldPos * 1.3, 6, 0.5, 2.1) * detailScale;
+                let waterLevel = fbm(worldPos * 0.5, 3, 0.8, 1.7) * detailScale;
+                let biologicalActivity = fbm(worldPos * 2.0, 7, 0.4, 2.2) * detailScale;
+                
+                // Base mud and silt mixture
+                var wetlandColor = mix(darkMud, richSilt, clamp(sedimentLayers * 0.7 + 0.4, 0.0, 1.0));
+                
+                // Organic matter accumulation
+                let organicContent = smoothstep(-0.1, 0.4, organicDeposits);
+                wetlandColor = mix(wetlandColor, organicSediment, organicContent * 0.4);
+                
+                // Clay deposits in calmer areas
+                let calmAreas = smoothstep(0.2, 0.6, abs(waterLevel));
+                wetlandColor = mix(wetlandColor, clayDeposit, calmAreas * 0.2);
+                
+                // Water surface reflection in standing water
+                let standingWater = smoothstep(0.4, 0.8, waterLevel) * uniforms.precipitationFactor;
+                wetlandColor = mix(wetlandColor, waterSurface, standingWater * 0.3);
+                
+                // Algae and microbial growth
+                let algaeGrowth = smoothstep(0.5, 0.8, biologicalActivity) * uniforms.precipitationFactor;
+                wetlandColor = mix(wetlandColor, algaeGrowth, algaeGrowth * 0.2);
+                
+                return clamp(wetlandColor, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            fn getWetlandAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoNoise = fbm(worldPos, 5, 0.6, 2.0) * 0.2;
+                return clamp(0.5 + aoNoise, 0.3, 0.8);  // Lower AO due to water saturation
+            }
+            
+            // Beach/sand texture with realistic coastal characteristics
+            fn getBeachTexture(worldPos: vec3<f32>, normal: vec3<f32>, detailScale: f32) -> vec3<f32> {
+                let fineSand = vec3<f32>(0.8, 0.7, 0.5);
+                let coarseSand = vec3<f32>(0.7, 0.6, 0.4);
+                let wetSand = vec3<f32>(0.5, 0.45, 0.35);
+                let shells = vec3<f32>(0.9, 0.85, 0.8);
+                let seaweed = vec3<f32>(0.3, 0.4, 0.2);
+                
+                // Beach formation patterns
+                let waveAction = fbm(worldPos * vec3<f32>(3.0, 0.1, 1.5), 6, 0.5, 2.1) * detailScale;
+                let grainSize = fbm(worldPos, 5, 0.6, 2.0) * detailScale;
+                let moisture = fbm(worldPos * 0.8, 4, 0.7, 1.9) * detailScale;
+                let debris = fbm(worldPos * 1.5, 7, 0.4, 2.3) * detailScale;
+                
+                // Base sand composition
+                var beachColor = mix(fineSand, coarseSand, clamp(grainSize * 0.6 + 0.4, 0.0, 1.0));
+                
+                // Wave-sorted sand patterns
+                let waveSort = smoothstep(-0.2, 0.4, waveAction);
+                beachColor = mix(beachColor, fineSand, waveSort * 0.3);
+                
+                // Moisture darkening near water
+                let wetness = smoothstep(0.2, 0.7, moisture);
+                beachColor = mix(beachColor, wetSand, wetness * 0.5);
+                
+                // Shell fragments and marine debris
+                let shellContent = smoothstep(0.6, 0.9, abs(debris));
+                beachColor = mix(beachColor, shells, shellContent * 0.15);
+                
+                // Occasional seaweed deposits
+                let seaweedDeposits = smoothstep(0.7, 0.95, debris) * wetness;
+                beachColor = mix(beachColor, seaweed, seaweedDeposits * 0.1);
+                
+                return clamp(beachColor, vec3<f32>(0.0), vec3<f32>(1.0));
+            }
+            
+            fn getSandAO(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+                let aoNoise = fbm(worldPos, 3, 0.7, 2.0) * 0.1;
+                return clamp(0.85 + aoNoise, 0.7, 1.0);
+            }
+            
+            // Ocean water texture
+            fn getOceanTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
+                let deepWater = vec3<f32>(0.02, 0.2, 0.4);
+                let shallowWater = vec3<f32>(0.1, 0.4, 0.6);
+                let foam = vec3<f32>(0.8, 0.9, 0.95);
+                
+                let wavePattern = fbm(worldPos + vec3<f32>(time * 0.5, 0.0, time * 0.3), 4, 0.6, 2.0);
+                let foamPattern = smoothstep(0.6, 0.9, abs(wavePattern));
+                
+                var oceanColor = mix(deepWater, shallowWater, clamp(wavePattern * 0.3 + 0.5, 0.0, 1.0));
+                oceanColor = mix(oceanColor, foam, foamPattern * 0.1);
+                
+                return oceanColor;
+            }
+            
+            // Lake water texture
+            fn getLakeTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
+                let clearWater = vec3<f32>(0.1, 0.3, 0.5);
+                let reflection = vec3<f32>(0.4, 0.6, 0.8);
+                
+                let ripples = fbm(worldPos + vec3<f32>(time * 0.2, 0.0, time * 0.15), 3, 0.5, 2.0);
+                return mix(clearWater, reflection, clamp(ripples * 0.2 + 0.3, 0.0, 1.0));
+            }
+            
+            // River water texture
+            fn getRiverTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
+                let flowingWater = vec3<f32>(0.15, 0.35, 0.55);
+                let sediment = vec3<f32>(0.3, 0.4, 0.35);
+                
+                let flowPattern = fbm(worldPos + vec3<f32>(time * 1.0, 0.0, 0.0), 4, 0.6, 2.1);
+                let sedimentLoad = smoothstep(0.2, 0.7, abs(flowPattern));
+                
+                return mix(flowingWater, sediment, sedimentLoad * 0.2);
             }
             
             fn calculateShadow(worldPos: vec3<f32>, normal: vec3<f32>, viewDepth: f32) -> f32 {
@@ -711,84 +1181,114 @@ export class TerrainRenderer {
                 return mix(1.0, shadow, validCascade * inBounds);
             }
             
+            // Enhanced PBR lighting calculation
+            fn calculatePBRLighting(material: MaterialPBR, worldPos: vec3<f32>, viewDir: vec3<f32>, lightDir: vec3<f32>, shadowFactor: f32) -> vec3<f32> {
+                let normal = material.normal;
+                let halfwayDir = normalize(lightDir + viewDir);
+                
+                let NdotL = max(dot(normal, lightDir), 0.0);
+                let NdotV = max(dot(normal, viewDir), 0.0);
+                let NdotH = max(dot(normal, halfwayDir), 0.0);
+                let VdotH = max(dot(viewDir, halfwayDir), 0.0);
+                
+                // Fresnel calculation
+                let F0 = mix(vec3<f32>(0.04), material.albedo, material.metalness);
+                let fresnel = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+                
+                // Distribution (GGX/Trowbridge-Reitz)
+                let alpha = material.roughness * material.roughness;
+                let alpha2 = alpha * alpha;
+                let denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+                let distribution = alpha2 / (3.14159 * denom * denom);
+                
+                // Geometry function (Smith's method)
+                let k = (material.roughness + 1.0) * (material.roughness + 1.0) / 8.0;
+                let G1L = NdotL / (NdotL * (1.0 - k) + k);
+                let G1V = NdotV / (NdotV * (1.0 - k) + k);
+                let geometry = G1L * G1V;
+                
+                // BRDF
+                let numerator = distribution * geometry * fresnel;
+                let denominator = 4.0 * NdotV * NdotL + 0.001;
+                let specular = numerator / denominator;
+                
+                // Energy conservation
+                let kS = fresnel;
+                let kD = (1.0 - kS) * (1.0 - material.metalness);
+                
+                let diffuse = kD * material.albedo / 3.14159;
+                
+                // Combine diffuse and specular
+                let lightColor = shadowUniforms.lightColor * shadowUniforms.lightIntensity;
+                let brdf = (diffuse + specular) * lightColor * NdotL * shadowFactor;
+                
+                // Ambient lighting with image-based approximation
+                let ambientStrength = 0.15;
+                let ambient = material.albedo * ambientStrength * material.ao;
+                
+                return brdf + ambient;
+            }
+
             @fragment
             fn fs_terrain(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Base terrain color based on material ID (biome) with enhanced texturing
-                var baseColor = getBiomeColor(input.materialId, input.worldPos.y, input.worldPos, uniforms.time, input.normal);
+                // Get enhanced PBR material properties
+                let material = getMaterialPBR(input.materialId, input.worldPos.y, input.worldPos, uniforms.time, input.normal);
                 
-                // Add noise-based texture variation with improved Perlin noise
-                let noiseScale = 0.013;
-                let noiseValue1 = triplanarNoise(input.worldPos, input.normal, noiseScale, 3);
-                let noiseValue2 = triplanarNoise(input.worldPos, input.normal, noiseScale * 2.7, 2);
-                let combinedNoise = (noiseValue1 + noiseValue2 * 0.5) * 0.12;
-                
-                // Apply noise variation
-                baseColor += vec3<f32>(combinedNoise, combinedNoise * 0.8, combinedNoise * 0.6);
-                
-                // Add height-based color variation for more realism
-                let heightFactor = clamp(input.worldPos.y / 1000.0, 0.0, 1.0);
-                let heightVariation = mix(0.9, 1.3, heightFactor);
-                baseColor *= heightVariation;
-                
-                // Add slope-based darkening (cliffs and steep areas are darker)
-                let slopeFactor = 1.0 - abs(input.normal.y);
-                let slopeDarkening = mix(1.0, 0.7, slopeFactor);
-                baseColor *= slopeDarkening;
-                
-                // Enhanced lighting calculation
+                // Calculate view and light directions
+                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
                 let lightDir = -shadowUniforms.lightDirection;
-                let NdotL = max(dot(input.normal, lightDir), 0.0);
                 
                 // Calculate shadow
-                let shadowFactor = calculateShadow(input.worldPos, input.normal, input.viewDepth);
+                let shadowFactor = calculateShadow(input.worldPos, material.normal, input.viewDepth);
                 
-                // Enhanced lighting with better ambient and diffuse
-                let ambient = 0.4; // Increased ambient for better visibility
-                let diffuse = 0.8 * NdotL * shadowFactor;
-                let lighting = ambient + diffuse;
+                // Calculate PBR lighting
+                var finalColor = calculatePBRLighting(material, input.worldPos, viewDir, lightDir, shadowFactor);
                 
-                // Add subtle rim lighting for depth
-                let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
-                let rimLight = pow(1.0 - max(dot(viewDir, input.normal), 0.0), 2.0) * 0.2;
-                
-                var finalColor = baseColor * lighting * shadowUniforms.lightColor * shadowUniforms.lightIntensity;
-                finalColor += baseColor * rimLight;
+                // Add slope-based ambient occlusion enhancement
+                let slopeFactor = 1.0 - abs(input.normal.y);
+                let slopeAO = mix(1.0, 0.8, slopeFactor * 0.5);
+                finalColor *= slopeAO;
                 
                 // Enhanced atmospheric scattering
                 let distance = length(uniforms.cameraPosition - input.worldPos);
-                let scatteringCoeff = 0.000008; // Adjusted for better visibility
+                let scatteringCoeff = 0.000012;
                 let scattering = 1.0 - exp(-distance * scatteringCoeff);
                 
                 let sunDirection = -shadowUniforms.lightDirection;
                 let viewDirection = normalize(input.worldPos - uniforms.cameraPosition);
                 let cosTheta = dot(viewDirection, sunDirection);
-                let miePhase = (1.0 + cosTheta * cosTheta) * 0.5;
                 
-                // More realistic sky colors
-                let horizonColor = vec3<f32>(0.6, 0.8, 1.0);
-                let zenithColor = vec3<f32>(0.3, 0.6, 1.0);
-                let sunsetColor = vec3<f32>(1.0, 0.7, 0.4);
+                // Improved Mie scattering phase function
+                let mieG = 0.8;
+                let miePhase = (1.0 - mieG * mieG) / pow(1.0 + mieG * mieG - 2.0 * mieG * cosTheta, 1.5);
+                
+                // Realistic atmospheric colors
+                let horizonColor = vec3<f32>(0.7, 0.8, 0.9);
+                let zenithColor = vec3<f32>(0.2, 0.5, 0.8);
+                let sunColor = vec3<f32>(1.0, 0.9, 0.7);
                 
                 let skyColor = mix(
-                    mix(horizonColor, zenithColor, max(0.0, sunDirection.y)),
-                    sunsetColor,
-                    max(0.0, cosTheta) * (1.0 - abs(sunDirection.y))
+                    mix(horizonColor, zenithColor, clamp(sunDirection.y, 0.0, 1.0)),
+                    sunColor,
+                    pow(max(0.0, cosTheta), 8.0) * (1.0 - abs(sunDirection.y))
                 );
                 
-                let scatteredLight = skyColor * scattering * miePhase * 0.3;
+                let scatteredLight = skyColor * scattering * miePhase * 0.15;
                 finalColor += scatteredLight;
                 
-                // Distance fog with better color blending
-                let fogStart = 15000.0;
-                let fogEnd = 60000.0;
+                // Distance fog with atmospheric perspective
+                let fogStart = 8000.0;
+                let fogEnd = 35000.0;
                 let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
-                let fogColor = skyColor * 0.9; // Use sky color for fog
+                let fogColor = skyColor * 0.8;
                 
                 finalColor = mix(fogColor, finalColor, fogFactor);
                 
-                // Color correction and saturation boost
-                finalColor = pow(finalColor, vec3<f32>(0.9)); // Slight gamma correction
-                finalColor = mix(vec3<f32>(dot(finalColor, vec3<f32>(0.299, 0.587, 0.114))), finalColor, 1.2); // Saturation boost
+                // Tone mapping (ACES approximation)
+                finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
+                
+                // Gamma correction
+                finalColor = pow(finalColor, vec3<f32>(1.0 / 2.2));
                 
                 return vec4<f32>(finalColor, 1.0);
             }
