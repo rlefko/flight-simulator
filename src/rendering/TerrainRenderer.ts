@@ -345,14 +345,19 @@ export class TerrainRenderer {
                 return value / maxValue;
             }
             
-            fn triplanarNoise(worldPos: vec3<f32>, scale: f32, octaves: i32) -> f32 {
-                let weights = abs(normalize(vec3<f32>(1.0, 1.0, 1.0)));
+            fn triplanarNoise(worldPos: vec3<f32>, normal: vec3<f32>, scale: f32, octaves: i32) -> f32 {
+                // Calculate proper triplanar weights based on surface normal
+                let weights = abs(normal);
+                let weightSum = weights.x + weights.y + weights.z;
+                let normalizedWeights = weights / weightSum;
                 
-                let noiseX = fbm(worldPos.yzx * scale, octaves);
-                let noiseY = fbm(worldPos.xzy * scale, octaves);
-                let noiseZ = fbm(worldPos.xyz * scale, octaves);
+                // Sample noise from three orthogonal planes
+                let noiseX = fbm(worldPos.yzx * scale, octaves);  // YZ plane (for X-facing surfaces)
+                let noiseY = fbm(worldPos.xzy * scale, octaves);  // XZ plane (for Y-facing surfaces)
+                let noiseZ = fbm(worldPos.xyz * scale, octaves);  // XY plane (for Z-facing surfaces)
                 
-                return (noiseX + noiseY + noiseZ) / 3.0;
+                // Blend based on surface normal orientation
+                return noiseX * normalizedWeights.x + noiseY * normalizedWeights.y + noiseZ * normalizedWeights.z;
             }
             
             struct VertexInput {
@@ -450,7 +455,7 @@ export class TerrainRenderer {
                 return shadowSum / sampleCount;
             }
             
-            fn getBiomeColor(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32) -> vec3<f32> {
+            fn getBiomeColor(materialId: f32, elevation: f32, worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
                 let id = i32(materialId);
                 
                 // Natural biome colors with realistic earth tones
@@ -460,41 +465,41 @@ export class TerrainRenderer {
                     case 1: { 
                         // Beach - natural sand with improved triplanar noise
                         baseColor = vec3<f32>(0.7, 0.6, 0.45);
-                        let sandNoise = triplanarNoise(worldPos, 0.017, 3) * 0.08;
+                        let sandNoise = triplanarNoise(worldPos, normal, 0.017, 3) * 0.08;
                         baseColor += vec3<f32>(sandNoise, sandNoise * 0.8, sandNoise * 0.6);
                     }
                     case 2: { 
                         // Grassland - enhanced with tiling grass texture
-                        baseColor = getGrasslandTexture(worldPos, time);
+                        baseColor = getGrasslandTexture(worldPos, time, normal);
                     }
                     case 3: { 
                         // Forest - rich soil with organic variation
-                        baseColor = getForestFloorTexture(worldPos, elevation);
+                        baseColor = getForestFloorTexture(worldPos, elevation, normal);
                     }
                     case 4: { 
                         // Desert - enhanced sand texture
-                        baseColor = getDesertTexture(worldPos);
+                        baseColor = getDesertTexture(worldPos, normal);
                     }
                     case 5: { 
                         // Mountain - rocky texture with mineral variation
-                        baseColor = getMountainTexture(worldPos, elevation);
+                        baseColor = getMountainTexture(worldPos, elevation, normal);
                     }
                     case 6: { 
                         // Snow - pure white with subtle blue tint and sparkle
-                        baseColor = getSnowTexture(worldPos, time);
+                        baseColor = getSnowTexture(worldPos, time, normal);
                     }
                     case 7: { 
                         // Tundra - frozen soil with sparse vegetation
-                        baseColor = getTundraTexture(worldPos);
+                        baseColor = getTundraTexture(worldPos, normal);
                     }
                     case 8: { 
                         // Wetland - muddy terrain with organic matter
-                        baseColor = getWetlandTexture(worldPos);
+                        baseColor = getWetlandTexture(worldPos, normal);
                     }
                     case 9: { baseColor = vec3<f32>(0.8, 0.8, 0.8); }       // Urban - light gray
                     case 10: { baseColor = vec3<f32>(0.2, 0.6, 1.0); }      // Lake - bright blue
                     case 11: { baseColor = vec3<f32>(0.3, 0.7, 1.0); }      // River - flowing blue
-                    default: { baseColor = getGrasslandTexture(worldPos, time); } // Default grassland
+                    default: { baseColor = getGrasslandTexture(worldPos, time, normal); } // Default grassland
                 }
                 
                 // Add elevation-based variation for more realism
@@ -517,7 +522,7 @@ export class TerrainRenderer {
             }
             
             // Grass texture with seasonal variation and natural colors
-            fn getGrasslandTexture(worldPos: vec3<f32>, time: f32) -> vec3<f32> {
+            fn getGrasslandTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
                 let scale1 = 0.02;
                 let scale2 = 0.08;
                 let scale3 = 0.15;
@@ -533,9 +538,9 @@ export class TerrainRenderer {
                 let brownPatch = vec3<f32>(0.3, 0.22, 0.08);
                 
                 // Multi-scale noise for grass variation using improved noise
-                let noise1 = triplanarNoise(worldPos, scale1, 2);
-                let noise2 = triplanarNoise(worldPos, scale2, 2);
-                let noise3 = triplanarNoise(worldPos + vec3<f32>(time * 2.0, 0.0, 0.0), scale3, 2);
+                let noise1 = triplanarNoise(worldPos, normal, scale1, 2);
+                let noise2 = triplanarNoise(worldPos, normal, scale2, 2);
+                let noise3 = triplanarNoise(worldPos + vec3<f32>(time * 2.0, 0.0, 0.0), normal, scale3, 2);
                 
                 // Combine noise layers
                 let grassDensity = (noise1 + noise2 * 0.5 + noise3 * 0.3) * 0.5 + 0.5;
@@ -573,14 +578,14 @@ export class TerrainRenderer {
             }
             
             // Forest floor texture with rich organic variation
-            fn getForestFloorTexture(worldPos: vec3<f32>, elevation: f32) -> vec3<f32> {
+            fn getForestFloorTexture(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>) -> vec3<f32> {
                 let soilBrown = vec3<f32>(0.18, 0.12, 0.06);
                 let leafLitter = vec3<f32>(0.3, 0.2, 0.08);
                 let mossGreen = vec3<f32>(0.08, 0.25, 0.1);
                 let darkSoil = vec3<f32>(0.1, 0.08, 0.04);
                 
-                let noise1 = triplanarNoise(worldPos, 0.023, 3);
-                let noise2 = triplanarNoise(worldPos, 0.087, 2);
+                let noise1 = triplanarNoise(worldPos, normal, 0.023, 3);
+                let noise2 = triplanarNoise(worldPos, normal, 0.087, 2);
                 
                 // Moss in damper areas
                 let mossAreas = smoothstep(0.2, 0.6, noise1);
@@ -593,13 +598,13 @@ export class TerrainRenderer {
             }
             
             // Desert sand texture with natural dune patterns
-            fn getDesertTexture(worldPos: vec3<f32>) -> vec3<f32> {
+            fn getDesertTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
                 let lightSand = vec3<f32>(0.7, 0.6, 0.4);
                 let darkSand = vec3<f32>(0.55, 0.45, 0.25);
                 let redSand = vec3<f32>(0.6, 0.35, 0.15);
                 
-                let noise1 = triplanarNoise(worldPos, 0.011, 4);
-                let noise2 = triplanarNoise(worldPos, 0.053, 2);
+                let noise1 = triplanarNoise(worldPos, normal, 0.011, 4);
+                let noise2 = triplanarNoise(worldPos, normal, 0.053, 2);
                 
                 var sandColor = mix(lightSand, darkSand, noise1 * 0.3 + 0.5);
                 sandColor = mix(sandColor, redSand, max(0.0, noise2) * 0.2);
@@ -608,14 +613,14 @@ export class TerrainRenderer {
             }
             
             // Mountain rocky texture with realistic stone colors
-            fn getMountainTexture(worldPos: vec3<f32>, elevation: f32) -> vec3<f32> {
+            fn getMountainTexture(worldPos: vec3<f32>, elevation: f32, normal: vec3<f32>) -> vec3<f32> {
                 let grayRock = vec3<f32>(0.45, 0.45, 0.5);
                 let darkRock = vec3<f32>(0.3, 0.3, 0.35);
                 let brownRock = vec3<f32>(0.35, 0.28, 0.2);
                 let slate = vec3<f32>(0.25, 0.28, 0.32);
                 
-                let noise1 = triplanarNoise(worldPos, 0.009, 3);
-                let noise2 = triplanarNoise(worldPos, 0.031, 2);
+                let noise1 = triplanarNoise(worldPos, normal, 0.009, 3);
+                let noise2 = triplanarNoise(worldPos, normal, 0.031, 2);
                 
                 var rockColor = mix(grayRock, darkRock, noise1 * 0.5 + 0.5);
                 rockColor = mix(rockColor, brownRock, max(0.0, noise2) * 0.3);
@@ -625,13 +630,13 @@ export class TerrainRenderer {
             }
             
             // Snow texture with natural variations
-            fn getSnowTexture(worldPos: vec3<f32>, time: f32) -> vec3<f32> {
+            fn getSnowTexture(worldPos: vec3<f32>, time: f32, normal: vec3<f32>) -> vec3<f32> {
                 let pureWhite = vec3<f32>(0.9, 0.9, 0.95);
                 let blueSnow = vec3<f32>(0.8, 0.85, 0.9);
                 let sparkle = vec3<f32>(0.95, 0.95, 0.98);
                 
-                let noise1 = triplanarNoise(worldPos + vec3<f32>(time * 1.0, 0.0, 0.0), 0.11, 2);
-                let sparkleNoise = triplanarNoise(worldPos + vec3<f32>(time * 0.5, time * 0.3, 0.0), 0.19, 1);
+                let noise1 = triplanarNoise(worldPos + vec3<f32>(time * 1.0, 0.0, 0.0), normal, 0.11, 2);
+                let sparkleNoise = triplanarNoise(worldPos + vec3<f32>(time * 0.5, time * 0.3, 0.0), normal, 0.19, 1);
                 
                 var snowColor = mix(pureWhite, blueSnow, noise1 * 0.2 + 0.3);
                 let sparkleEffect = smoothstep(0.7, 0.9, sparkleNoise);
@@ -641,13 +646,13 @@ export class TerrainRenderer {
             }
             
             // Tundra frozen ground texture
-            fn getTundraTexture(worldPos: vec3<f32>) -> vec3<f32> {
+            fn getTundraTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
                 let frozenSoil = vec3<f32>(0.5, 0.5, 0.45);
                 let permafrost = vec3<f32>(0.4, 0.45, 0.5);
                 let deadGrass = vec3<f32>(0.6, 0.5, 0.3);
                 
-                let noise1 = triplanarNoise(worldPos, 0.021, 3);
-                let noise2 = triplanarNoise(worldPos, 0.083, 2);
+                let noise1 = triplanarNoise(worldPos, normal, 0.021, 3);
+                let noise2 = triplanarNoise(worldPos, normal, 0.083, 2);
                 
                 var tundraColor = mix(frozenSoil, permafrost, noise1 * 0.4 + 0.5);
                 tundraColor = mix(tundraColor, deadGrass, max(0.0, noise2) * 0.3);
@@ -656,14 +661,14 @@ export class TerrainRenderer {
             }
             
             // Wetland muddy texture
-            fn getWetlandTexture(worldPos: vec3<f32>) -> vec3<f32> {
+            fn getWetlandTexture(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
                 let darkMud = vec3<f32>(0.2, 0.15, 0.1);
                 let wetSoil = vec3<f32>(0.3, 0.25, 0.15);
                 let organicMatter = vec3<f32>(0.15, 0.2, 0.1);
                 let waterReflection = vec3<f32>(0.4, 0.5, 0.6);
                 
-                let noise1 = triplanarNoise(worldPos, 0.041, 3);
-                let noise2 = triplanarNoise(worldPos, 0.151, 2);
+                let noise1 = triplanarNoise(worldPos, normal, 0.041, 3);
+                let noise2 = triplanarNoise(worldPos, normal, 0.151, 2);
                 
                 var wetlandColor = mix(darkMud, wetSoil, noise1 * 0.5 + 0.5);
                 wetlandColor = mix(wetlandColor, organicMatter, max(0.0, noise2) * 0.4);
@@ -709,12 +714,12 @@ export class TerrainRenderer {
             @fragment
             fn fs_terrain(input: VertexOutput) -> @location(0) vec4<f32> {
                 // Base terrain color based on material ID (biome) with enhanced texturing
-                var baseColor = getBiomeColor(input.materialId, input.worldPos.y, input.worldPos, uniforms.time);
+                var baseColor = getBiomeColor(input.materialId, input.worldPos.y, input.worldPos, uniforms.time, input.normal);
                 
                 // Add noise-based texture variation with improved Perlin noise
                 let noiseScale = 0.013;
-                let noiseValue1 = triplanarNoise(input.worldPos, noiseScale, 3);
-                let noiseValue2 = triplanarNoise(input.worldPos, noiseScale * 2.7, 2);
+                let noiseValue1 = triplanarNoise(input.worldPos, input.normal, noiseScale, 3);
+                let noiseValue2 = triplanarNoise(input.worldPos, input.normal, noiseScale * 2.7, 2);
                 let combinedNoise = (noiseValue1 + noiseValue2 * 0.5) * 0.12;
                 
                 // Apply noise variation
