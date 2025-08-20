@@ -143,7 +143,7 @@ export class SimpleVegetationRenderer {
                 },
                 primitive: {
                     topology: 'triangle-list',
-                    cullMode: 'none', // Disable culling for debugging
+                    cullMode: 'back', // Enable back-face culling for performance and proper lighting
                     frontFace: 'ccw',
                 },
                 depthStencil: {
@@ -253,62 +253,96 @@ export class SimpleVegetationRenderer {
                 output.species = input.species;
                 output.variations = vec2<f32>(input.ageVariation, input.healthVariation);
                 
-                // Enhanced tree coloring based on height and tree parts
+                // Enhanced tree coloring based on height and tree parts with realistic PBR colors
                 let heightFactor = clamp(input.position.y / 25.0, 0.0, 1.0);
-                let trunkHeightThreshold = 0.3; // 30% of tree is trunk
+                let trunkHeightThreshold = 0.35; // 35% of tree is trunk (matching geometry)
                 
                 var finalColor: vec3<f32>;
                 
                 if (heightFactor < trunkHeightThreshold) {
-                    // Trunk coloring - brown bark
-                    let trunkBase = vec3<f32>(0.4, 0.25, 0.1);  // Dark brown
-                    let trunkTop = vec3<f32>(0.5, 0.35, 0.2);   // Lighter brown
-                    let trunkFactor = heightFactor / trunkHeightThreshold;
-                    finalColor = mix(trunkBase, trunkTop, trunkFactor);
+                    // Realistic bark coloring with species variation
+                    var barkBaseColor: vec3<f32>;
                     
-                    // Add bark texture variation
-                    let barkNoise = sin(input.position.y * 0.5) * cos(input.rotation * 10.0) * 0.1;
-                    finalColor += vec3<f32>(barkNoise, barkNoise * 0.5, barkNoise * 0.2);
+                    if (input.species < 0.5) {        // Oak - rough dark bark
+                        barkBaseColor = vec3<f32>(0.35, 0.22, 0.12);
+                    } else if (input.species < 1.5) { // Pine - reddish bark
+                        barkBaseColor = vec3<f32>(0.42, 0.25, 0.15);
+                    } else if (input.species < 2.5) { // Palm - smooth brown bark
+                        barkBaseColor = vec3<f32>(0.38, 0.28, 0.18);
+                    } else if (input.species < 3.5) { // Birch - white bark with dark markings
+                        barkBaseColor = vec3<f32>(0.65, 0.55, 0.45);
+                    } else {                          // Cactus - green-brown bark
+                        barkBaseColor = vec3<f32>(0.25, 0.35, 0.15);
+                    }
+                    
+                    // Add realistic bark texture and aging
+                    let barkNoise = sin(input.position.y * 2.0) * cos(input.rotation * 8.0) * 0.12;
+                    let ageEffect = sin(input.instancePosition.x * 0.02) * 0.08;
+                    let verticalLines = sin(input.rotation * 15.0) * 0.06; // Vertical bark texture
+                    
+                    finalColor = barkBaseColor + vec3<f32>(
+                        barkNoise + ageEffect + verticalLines,
+                        (barkNoise + ageEffect) * 0.6,
+                        (barkNoise + ageEffect) * 0.3
+                    );
+                    
+                    // Darken lower trunk (dirt/moisture)
+                    let moistureFactor = clamp(1.0 - heightFactor * 3.0, 0.0, 0.3);
+                    finalColor *= (1.0 - moistureFactor);
+                    
                 } else {
-                    // Crown/foliage coloring - multiple green shades
+                    // Realistic foliage coloring with natural variation
                     let crownFactor = (heightFactor - trunkHeightThreshold) / (1.0 - trunkHeightThreshold);
                     
-                    // Create varied green colors for more natural look
-                    let innerGreen = vec3<f32>(0.15, 0.4, 0.1);   // Deep forest green
-                    let midGreen = vec3<f32>(0.25, 0.6, 0.15);    // Medium green
-                    let outerGreen = vec3<f32>(0.35, 0.7, 0.2);   // Bright green
-                    let tipGreen = vec3<f32>(0.4, 0.8, 0.25);     // Light green tips
+                    // Base foliage colors - more realistic and varied
+                    let innerGreen = vec3<f32>(0.12, 0.35, 0.08);   // Deep shadow green
+                    let midGreen = vec3<f32>(0.18, 0.52, 0.12);     // Main foliage green
+                    let outerGreen = vec3<f32>(0.25, 0.65, 0.18);   // Sunlit green
+                    let tipGreen = vec3<f32>(0.32, 0.75, 0.22);     // New growth green
                     
-                    // Multi-layer color mixing for realistic foliage
+                    // Multi-layer color mixing for realistic foliage depth
                     var foliageColor: vec3<f32>;
-                    if (crownFactor < 0.3) {
-                        foliageColor = mix(innerGreen, midGreen, crownFactor / 0.3);
-                    } else if (crownFactor < 0.7) {
-                        foliageColor = mix(midGreen, outerGreen, (crownFactor - 0.3) / 0.4);
+                    if (crownFactor < 0.25) {
+                        foliageColor = mix(innerGreen, midGreen, crownFactor / 0.25);
+                    } else if (crownFactor < 0.6) {
+                        foliageColor = mix(midGreen, outerGreen, (crownFactor - 0.25) / 0.35);
+                    } else if (crownFactor < 0.85) {
+                        foliageColor = mix(outerGreen, tipGreen, (crownFactor - 0.6) / 0.25);
                     } else {
-                        foliageColor = mix(outerGreen, tipGreen, (crownFactor - 0.7) / 0.3);
+                        // Uppermost tips - brightest new growth
+                        foliageColor = mix(tipGreen, vec3<f32>(0.4, 0.85, 0.3), (crownFactor - 0.85) / 0.15);
                     }
                     
                     // Apply seasonal variation first
                     foliageColor = applySeasonalVariation(foliageColor, input.species, uniforms.seasonFactor, uniforms.temperatureFactor);
                     
-                    // Apply species-specific coloring
-                    if (input.species < 0.5) {        // Oak - rich green
-                        foliageColor *= vec3<f32>(0.9, 1.1, 0.8);
-                    } else if (input.species < 1.5) { // Pine - darker green (evergreen, less seasonal change)
-                        foliageColor *= vec3<f32>(0.7, 0.9, 0.6);
-                    } else if (input.species < 2.5) { // Palm - tropical green (no seasonal change)
-                        foliageColor *= vec3<f32>(0.8, 1.2, 0.7);
-                    } else if (input.species < 3.5) { // Birch - lighter green
-                        foliageColor *= vec3<f32>(1.1, 1.0, 0.9);
-                    } else {                          // Cactus - desert green (minimal seasonal change)
-                        foliageColor *= vec3<f32>(0.8, 0.8, 0.5);
+                    // Apply species-specific realistic coloring
+                    if (input.species < 0.5) {        // Oak - rich temperate green
+                        foliageColor *= vec3<f32>(0.95, 1.08, 0.85);
+                    } else if (input.species < 1.5) { // Pine - darker evergreen
+                        foliageColor *= vec3<f32>(0.75, 0.88, 0.65);
+                    } else if (input.species < 2.5) { // Palm - tropical bright green
+                        foliageColor *= vec3<f32>(0.85, 1.15, 0.75);
+                    } else if (input.species < 3.5) { // Birch - lighter deciduous green
+                        foliageColor *= vec3<f32>(1.05, 0.98, 0.88);
+                    } else {                          // Cactus - desert green-gray
+                        foliageColor *= vec3<f32>(0.75, 0.85, 0.55);
                     }
                     
-                    // Add natural color variation using position-based noise
-                    let colorNoise = sin(input.instancePosition.x * 0.1) * cos(input.instancePosition.z * 0.1) * 0.15;
-                    let seasonalVariation = sin(input.instancePosition.x * 0.05 + input.instancePosition.z * 0.05) * 0.1;
-                    foliageColor += vec3<f32>(colorNoise + seasonalVariation, colorNoise * 0.5, colorNoise * 0.3);
+                    // Add natural micro-variation and wind effects
+                    let microVariation = sin(input.instancePosition.x * 0.15) * cos(input.instancePosition.z * 0.12) * 0.1;
+                    let windVariation = sin(input.position.x * 0.3 + input.position.z * 0.25) * 0.08;
+                    let seasonalShift = sin(input.instancePosition.x * 0.03 + input.instancePosition.z * 0.04) * 0.06;
+                    
+                    foliageColor += vec3<f32>(
+                        microVariation + windVariation + seasonalShift,
+                        (microVariation + windVariation) * 0.7,
+                        (microVariation + windVariation) * 0.4
+                    );
+                    
+                    // Add subtle branch shadow effect
+                    let branchShadow = sin(crownFactor * 12.0) * cos(input.rotation * 6.0) * 0.05;
+                    foliageColor *= (1.0 - branchShadow);
                     
                     finalColor = foliageColor;
                 }
@@ -324,59 +358,100 @@ export class SimpleVegetationRenderer {
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Enhanced lighting with multiple light sources
+                // Enhanced realistic lighting with improved material properties
                 let sunDir = normalize(vec3<f32>(0.6, 1.0, 0.4));
                 let skyDir = normalize(vec3<f32>(0.0, 1.0, 0.0));
                 let normal = normalize(input.normal);
                 
-                // Direct sunlight
+                // Determine if this is trunk or foliage based on height
+                let trunkThreshold = input.instancePosition.y + 8.75; // 35% of 25 units
+                let isTrunk = input.worldPos.y < trunkThreshold;
+                
+                // Enhanced lighting calculations
                 let sunDot = max(dot(normal, sunDir), 0.0);
-                let sunLight = sunDot * 0.8;
-                
-                // Sky ambient lighting
                 let skyDot = max(dot(normal, skyDir), 0.0);
-                let skyLight = skyDot * 0.3;
-                
-                // Ground bounce lighting (simulate light bouncing from ground)
                 let groundDir = vec3<f32>(0.0, -1.0, 0.0);
                 let groundDot = max(dot(normal, groundDir), 0.0);
-                let groundLight = groundDot * 0.15;
                 
-                // Base ambient lighting
-                let ambient = 0.25;
+                // Material-specific lighting
+                var directLight: f32;
+                var ambientLight: f32;
+                var specularLight: f32;
                 
-                // Combine lighting
-                let totalLighting = ambient + sunLight + skyLight + groundLight;
+                if (isTrunk) {
+                    // Trunk material - rougher, more diffuse
+                    directLight = sunDot * 0.7;
+                    ambientLight = 0.3 + skyDot * 0.2 + groundDot * 0.1;
+                    specularLight = 0.0; // No specular for bark
+                } else {
+                    // Foliage material - softer, more translucent
+                    directLight = sunDot * 0.9;
+                    ambientLight = 0.4 + skyDot * 0.4 + groundDot * 0.2;
+                    
+                    // Subtle specular for waxy leaves
+                    let viewDir = normalize(uniforms.cameraPosition - input.worldPos);
+                    let halfDir = normalize(sunDir + viewDir);
+                    let specDot = max(dot(normal, halfDir), 0.0);
+                    specularLight = pow(specDot, 16.0) * 0.1;
+                }
                 
                 // Apply health variation to color
                 var healthAdjustedColor = input.color * input.variations.y;
                 
-                // Add subtle wind-based color shifting
-                var windAdjustedColor = healthAdjustedColor;
-                if (input.worldPos.y > (input.instancePosition.y + 7.5)) { // Only affect crown (above trunk)
+                // Add natural color variation and micro-detail
+                let worldNoise = sin(input.worldPos.x * 0.5) * cos(input.worldPos.z * 0.3) * 0.08;
+                let heightNoise = sin(input.worldPos.y * 0.8) * 0.05;
+                healthAdjustedColor += vec3<f32>(worldNoise + heightNoise, worldNoise * 0.7, worldNoise * 0.4);
+                
+                // Add subtle wind-based color shifting for foliage
+                if (!isTrunk) {
                     let windEffect = sin(uniforms.time * 2.0 + input.worldPos.x * 0.1) * 0.02;
-                    windAdjustedColor += vec3<f32>(windEffect, windEffect * 0.5, windEffect * 0.3);
+                    healthAdjustedColor += vec3<f32>(windEffect, windEffect * 0.5, windEffect * 0.3);
                 }
                 
-                // Apply lighting to color
-                var finalColor = windAdjustedColor * totalLighting;
+                // Calculate total lighting
+                let totalLighting = ambientLight + directLight;
+                var finalColor = healthAdjustedColor * totalLighting;
                 
-                // Add subtle subsurface scattering for leaves
-                if (input.worldPos.y > (input.instancePosition.y + 7.5)) { // Crown only
-                    let backLight = max(0.0, -dot(normal, sunDir)) * 0.3;
-                    let scatterColor = vec3<f32>(0.4, 0.8, 0.2) * backLight;
+                // Add specular highlight
+                finalColor += vec3<f32>(1.0, 0.9, 0.7) * specularLight;
+                
+                // Enhanced subsurface scattering for leaves only
+                if (!isTrunk) {
+                    let backLight = max(0.0, -dot(normal, sunDir)) * 0.4;
+                    let thickness = 0.3 + sin(input.worldPos.x * 2.0 + input.worldPos.z * 1.5) * 0.1;
+                    let scatterColor = vec3<f32>(0.3, 0.7, 0.2) * backLight * thickness;
                     finalColor += scatterColor;
+                    
+                    // Add translucency effect
+                    let translucency = pow(max(0.0, -dot(normal, sunDir)), 0.5) * 0.2;
+                    finalColor += healthAdjustedColor * translucency;
                 }
                 
-                // Distance-based fog
+                // Improved material roughness simulation
+                if (isTrunk) {
+                    // Add bark roughness - slight darkening in crevices
+                    let barkRoughness = sin(input.worldPos.y * 3.0) * cos(atan2(input.worldPos.z, input.worldPos.x) * 8.0) * 0.1;
+                    finalColor *= (1.0 + barkRoughness);
+                } else {
+                    // Add leaf surface variation
+                    let leafVariation = sin(input.worldPos.x * 8.0) * sin(input.worldPos.z * 6.0) * 0.05;
+                    finalColor *= (1.0 + leafVariation);
+                }
+                
+                // Distance-based atmospheric perspective
                 let distance = length(uniforms.cameraPosition - input.worldPos);
-                let fogStart = 2000.0;
-                let fogEnd = 8000.0;
+                let fogStart = 1500.0;
+                let fogEnd = 6000.0;
                 let fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
-                let fogColor = vec3<f32>(0.7, 0.8, 0.9);
+                let fogColor = vec3<f32>(0.65, 0.75, 0.85);
                 finalColor = mix(fogColor, finalColor, fogFactor);
                 
-                return vec4<f32>(finalColor, 1.0);
+                // Tone mapping for more realistic colors
+                finalColor = finalColor / (finalColor + vec3<f32>(1.0));
+                finalColor = pow(finalColor, vec3<f32>(1.0 / 2.2)); // Gamma correction
+                
+                return vec4<f32>(clamp(finalColor, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
             }
             
             // Apply seasonal color variations to foliage
@@ -426,173 +501,256 @@ export class SimpleVegetationRenderer {
     }
 
     /**
-     * Create volumetric tree geometry with trunk and crown
+     * Create highly detailed, organic tree geometry with realistic trunk and crown
      */
     private createTreeGeometry(): void {
         const vertices: number[] = [];
         const indices: number[] = [];
 
-        // Enhanced tree geometry with trunk and foliage crown - scale to match VegetationSystem expectations (25 units)
+        // Enhanced tree geometry with detailed trunk and layered foliage crown
         const totalDesiredHeight = 25.0; // Match VegetationSystem expectation
-        const trunkHeightRatio = 0.3; // 30% trunk, 70% crown
-        const trunkHeight = totalDesiredHeight * trunkHeightRatio; // 7.5 units
-        const crownHeight = totalDesiredHeight * (1 - trunkHeightRatio); // 17.5 units
-        const trunkRadius = 1.5;
-        const crownRadius = 8.0; // Proportional crown radius
-        const segments = 12; // Reduced for performance
+        const trunkHeightRatio = 0.35; // 35% trunk, 65% crown for better proportions
+        const trunkHeight = totalDesiredHeight * trunkHeightRatio; // 8.75 units
+        const crownHeight = totalDesiredHeight * (1 - trunkHeightRatio); // 16.25 units
+        const baseTrunkRadius = 1.8; // Larger base radius for realism
+        const topTrunkRadius = 1.2; // Tapered trunk top
+        const crownRadius = 9.0; // Larger crown for realistic proportions
+        const segments = 32; // High detail for smooth curves
+        const trunkLayers = 6; // Multiple trunk layers for organic taper
+        const crownLayers = 8; // Multiple crown layers for volume
 
         let vertexIndex = 0;
 
-        // === TRUNK GEOMETRY ===
-        // Trunk bottom center
-        vertices.push(0, 0, 0, 0, -1, 0, 0.5, 0.0); // pos, normal, uv
-        const trunkBottomCenter = vertexIndex++;
+        // === DETAILED TRUNK GEOMETRY ===
+        // Create multi-layered trunk with organic taper and bark texture detail
+        const trunkLayerStarts: number[] = [];
 
-        // Trunk top center
-        vertices.push(0, trunkHeight, 0, 0, 1, 0, 0.5, 0.3); // pos, normal, uv
-        const trunkTopCenter = vertexIndex++;
+        for (let layer = 0; layer <= trunkLayers; layer++) {
+            const layerHeight = (layer / trunkLayers) * trunkHeight;
+            const heightRatio = layer / trunkLayers;
 
-        // Trunk bottom ring
-        const trunkBottomStart = vertexIndex;
-        for (let i = 0; i < segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * trunkRadius;
-            const z = Math.sin(angle) * trunkRadius;
+            // Organic trunk taper - wider at base, narrower at top with subtle curves
+            const radiusRatio = 1.0 - heightRatio * 0.4 + Math.sin(heightRatio * Math.PI) * 0.1;
+            const layerRadius = baseTrunkRadius * radiusRatio;
 
-            vertices.push(x, 0, z, x / trunkRadius, 0, z / trunkRadius, i / segments, 0.0);
-            vertexIndex++;
+            trunkLayerStarts.push(vertexIndex);
+
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+
+                // Add subtle bark texture variation
+                const barkVariation = Math.sin(angle * 3) * Math.cos(layerHeight * 0.8) * 0.05;
+                const radiusWithBark = layerRadius + barkVariation;
+
+                const x = Math.cos(angle) * radiusWithBark;
+                const z = Math.sin(angle) * radiusWithBark;
+
+                // Calculate smooth normal for organic appearance
+                const normalAngle = angle + barkVariation * 0.5;
+                const nx = Math.cos(normalAngle);
+                const nz = Math.sin(normalAngle);
+                const ny = layer === 0 ? -0.1 : layer === trunkLayers ? 0.2 : 0.05;
+                const normal = new Vector3(nx, ny, nz).normalize();
+
+                // UV coordinates for bark texture mapping
+                const u = i / segments;
+                const v = heightRatio * 0.35; // Trunk uses lower portion of texture
+
+                vertices.push(x, layerHeight, z, normal.x, normal.y, normal.z, u, v);
+                vertexIndex++;
+            }
         }
 
-        // Trunk top ring
-        const trunkTopStart = vertexIndex;
-        for (let i = 0; i < segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * trunkRadius * 0.8; // Slightly tapered trunk
-            const z = Math.sin(angle) * trunkRadius * 0.8;
+        // === DETAILED CROWN GEOMETRY ===
+        // Create multi-layered crown with organic shape and varied density
+        const crownLayerStarts: number[] = [];
 
-            vertices.push(
-                x,
-                trunkHeight,
-                z,
-                x / trunkRadius,
-                0.2,
-                z / trunkRadius,
-                i / segments,
-                0.3
-            );
-            vertexIndex++;
+        for (let layer = 0; layer <= crownLayers; layer++) {
+            const layerHeight = trunkHeight + (layer / crownLayers) * crownHeight;
+            const heightRatio = layer / crownLayers;
+
+            // Organic crown shape - narrow at base, widest at 60%, then tapering to point
+            let radiusMultiplier;
+            if (heightRatio < 0.2) {
+                // Base of crown - starts narrow
+                radiusMultiplier = 0.3 + heightRatio * 1.5; // 0.3 to 0.6
+            } else if (heightRatio < 0.6) {
+                // Middle expansion - reaches full width
+                const midRatio = (heightRatio - 0.2) / 0.4;
+                radiusMultiplier = 0.6 + midRatio * 0.4; // 0.6 to 1.0
+            } else if (heightRatio < 0.9) {
+                // Upper taper - gradual narrowing
+                const upperRatio = (heightRatio - 0.6) / 0.3;
+                radiusMultiplier = 1.0 - upperRatio * 0.6; // 1.0 to 0.4
+            } else {
+                // Crown tip - sharp taper to point
+                const tipRatio = (heightRatio - 0.9) / 0.1;
+                radiusMultiplier = 0.4 - tipRatio * 0.4; // 0.4 to 0.0
+            }
+
+            crownLayerStarts.push(vertexIndex);
+
+            // Add organic irregularity to crown shape
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+
+                // Natural foliage variation - some branches extend further
+                const foliageVariation = Math.sin(angle * 2.3) * Math.cos(angle * 1.7) * 0.15;
+                const windEffect = Math.sin(angle * 4) * 0.08; // Subtle asymmetry
+                const layerRadius =
+                    crownRadius * (radiusMultiplier + foliageVariation + windEffect);
+
+                const x = Math.cos(angle) * Math.max(0, layerRadius);
+                const z = Math.sin(angle) * Math.max(0, layerRadius);
+
+                // Calculate outward-facing normal with upward component for leaves
+                const normalRadial = new Vector3(x, 0, z).normalize();
+                const upwardComponent = 0.3 + heightRatio * 0.4; // More upward at top
+                const normal = new Vector3(
+                    normalRadial.x,
+                    upwardComponent,
+                    normalRadial.z
+                ).normalize();
+
+                // UV coordinates for foliage texture mapping
+                const u = i / segments;
+                const v = 0.35 + heightRatio * 0.65; // Crown uses upper portion of texture
+
+                vertices.push(x, layerHeight, z, normal.x, normal.y, normal.z, u, v);
+                vertexIndex++;
+            }
         }
 
-        // === CROWN GEOMETRY ===
-        // Crown top vertex
+        // Crown tip vertex for sharp top
         vertices.push(0, trunkHeight + crownHeight, 0, 0, 1, 0, 0.5, 1.0);
-        const crownTop = vertexIndex++;
-
-        // Crown base ring (at trunk top)
-        const crownBaseStart = vertexIndex;
-        for (let i = 0; i < segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * crownRadius * 0.4; // Start smaller at base
-            const z = Math.sin(angle) * crownRadius * 0.4;
-            const normal = new Vector3(x, 0.3, z).normalize();
-
-            vertices.push(x, trunkHeight, z, normal.x, normal.y, normal.z, i / segments, 0.3);
-            vertexIndex++;
-        }
-
-        // Crown middle ring (widest part)
-        const crownMidStart = vertexIndex;
-        for (let i = 0; i < segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * crownRadius;
-            const z = Math.sin(angle) * crownRadius;
-            const normal = new Vector3(x, 0.1, z).normalize();
-
-            vertices.push(
-                x,
-                trunkHeight + crownHeight * 0.4,
-                z,
-                normal.x,
-                normal.y,
-                normal.z,
-                i / segments,
-                0.6
-            );
-            vertexIndex++;
-        }
-
-        // Crown upper ring
-        const crownUpperStart = vertexIndex;
-        for (let i = 0; i < segments; i++) {
-            const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * crownRadius * 0.6; // Taper towards top
-            const z = Math.sin(angle) * crownRadius * 0.6;
-            const normal = new Vector3(x, 0.6, z).normalize();
-
-            vertices.push(
-                x,
-                trunkHeight + crownHeight * 0.8,
-                z,
-                normal.x,
-                normal.y,
-                normal.z,
-                i / segments,
-                0.8
-            );
-            vertexIndex++;
-        }
+        const crownTip = vertexIndex++;
 
         // === TRUNK INDICES ===
-        // Trunk bottom
-        for (let i = 0; i < segments; i++) {
-            const next = (i + 1) % segments;
-            indices.push(trunkBottomCenter, trunkBottomStart + next, trunkBottomStart + i);
-        }
+        // Connect trunk layers with quad faces
+        for (let layer = 0; layer < trunkLayers; layer++) {
+            const currentLayerStart = trunkLayerStarts[layer];
+            const nextLayerStart = trunkLayerStarts[layer + 1];
 
-        // Trunk sides
-        for (let i = 0; i < segments; i++) {
-            const next = (i + 1) % segments;
-            indices.push(
-                trunkBottomStart + i,
-                trunkBottomStart + next,
-                trunkTopStart + i,
-                trunkTopStart + i,
-                trunkBottomStart + next,
-                trunkTopStart + next
-            );
+            for (let i = 0; i < segments; i++) {
+                const next = (i + 1) % segments;
+
+                // Create quad from two triangles
+                indices.push(
+                    currentLayerStart + i,
+                    currentLayerStart + next,
+                    nextLayerStart + i,
+
+                    nextLayerStart + i,
+                    currentLayerStart + next,
+                    nextLayerStart + next
+                );
+            }
         }
 
         // === CROWN INDICES ===
-        // Crown base to middle
-        for (let i = 0; i < segments; i++) {
-            const next = (i + 1) % segments;
-            indices.push(
-                crownBaseStart + i,
-                crownBaseStart + next,
-                crownMidStart + i,
-                crownMidStart + i,
-                crownBaseStart + next,
-                crownMidStart + next
-            );
+        // Connect crown layers with quad faces
+        for (let layer = 0; layer < crownLayers; layer++) {
+            const currentLayerStart = crownLayerStarts[layer];
+            const nextLayerStart = crownLayerStarts[layer + 1];
+
+            for (let i = 0; i < segments; i++) {
+                const next = (i + 1) % segments;
+
+                // Create quad from two triangles
+                indices.push(
+                    currentLayerStart + i,
+                    currentLayerStart + next,
+                    nextLayerStart + i,
+
+                    nextLayerStart + i,
+                    currentLayerStart + next,
+                    nextLayerStart + next
+                );
+            }
         }
 
-        // Crown middle to upper
+        // Connect final crown layer to tip
+        const finalCrownLayer = crownLayerStarts[crownLayers];
         for (let i = 0; i < segments; i++) {
             const next = (i + 1) % segments;
-            indices.push(
-                crownMidStart + i,
-                crownMidStart + next,
-                crownUpperStart + i,
-                crownUpperStart + i,
-                crownMidStart + next,
-                crownUpperStart + next
-            );
+            indices.push(crownTip, finalCrownLayer + i, finalCrownLayer + next);
         }
 
-        // Crown upper to top
-        for (let i = 0; i < segments; i++) {
-            const next = (i + 1) % segments;
-            indices.push(crownTop, crownUpperStart + i, crownUpperStart + next);
+        // === ADD BRANCH DETAIL ===
+        // Add some simple branch geometry for extra detail (optional for performance)
+        const branchCount = 8;
+        const branchLayerStart = vertexIndex;
+
+        for (let b = 0; b < branchCount; b++) {
+            const branchAngle = (b / branchCount) * Math.PI * 2;
+            const branchHeight = trunkHeight * (0.6 + (b % 3) * 0.15); // Varied heights
+            const branchLength = crownRadius * (0.3 + (b % 2) * 0.2);
+            const branchRadius = 0.3;
+
+            // Branch base (at trunk)
+            const baseX = Math.cos(branchAngle) * (baseTrunkRadius * 0.9);
+            const baseZ = Math.sin(branchAngle) * (baseTrunkRadius * 0.9);
+
+            // Branch tip
+            const tipX = Math.cos(branchAngle) * branchLength;
+            const tipZ = Math.sin(branchAngle) * branchLength;
+            const tipY = branchHeight + branchLength * 0.1; // Slight upward angle
+
+            // Simple branch geometry (cylinder)
+            for (let seg = 0; seg < 6; seg++) {
+                const segAngle = (seg / 6) * Math.PI * 2;
+                const segX = Math.cos(segAngle) * branchRadius;
+                const segZ = Math.sin(segAngle) * branchRadius;
+
+                // Rotate around branch direction
+                const branchCos = Math.cos(branchAngle);
+                const branchSin = Math.sin(branchAngle);
+
+                const rotX = segX * branchCos - segZ * branchSin;
+                const rotZ = segX * branchSin + segZ * branchCos;
+
+                // Branch base vertex
+                vertices.push(
+                    baseX + rotX,
+                    branchHeight,
+                    baseZ + rotZ,
+                    rotX / branchRadius,
+                    0,
+                    rotZ / branchRadius,
+                    seg / 6,
+                    0.2
+                );
+
+                // Branch tip vertex
+                vertices.push(
+                    tipX + rotX * 0.5,
+                    tipY,
+                    tipZ + rotZ * 0.5,
+                    rotX / branchRadius,
+                    0.2,
+                    rotZ / branchRadius,
+                    seg / 6,
+                    0.3
+                );
+
+                vertexIndex += 2;
+            }
+        }
+
+        // Branch indices (connect base to tip segments)
+        for (let b = 0; b < branchCount; b++) {
+            const branchStart = branchLayerStart + b * 12; // 6 segments * 2 vertices
+
+            for (let seg = 0; seg < 6; seg++) {
+                const nextSeg = (seg + 1) % 6;
+                const baseIdx = branchStart + seg * 2;
+                const tipIdx = branchStart + seg * 2 + 1;
+                const nextBaseIdx = branchStart + nextSeg * 2;
+                const nextTipIdx = branchStart + nextSeg * 2 + 1;
+
+                // Create quad
+                indices.push(baseIdx, nextBaseIdx, tipIdx, tipIdx, nextBaseIdx, nextTipIdx);
+            }
         }
 
         // Create GPU buffers
@@ -600,14 +758,14 @@ export class SimpleVegetationRenderer {
         const indexData = new Uint16Array(indices);
 
         const vertexBuffer = this.device.createBuffer({
-            label: 'Tree Vertex Buffer',
+            label: 'Detailed Tree Vertex Buffer',
             size: vertexData.byteLength,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
         this.device.queue.writeBuffer(vertexBuffer, 0, vertexData);
 
         const indexBuffer = this.device.createBuffer({
-            label: 'Tree Index Buffer',
+            label: 'Detailed Tree Index Buffer',
             size: indexData.byteLength,
             usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
         });
@@ -619,12 +777,14 @@ export class SimpleVegetationRenderer {
             indexCount: indices.length,
         };
 
-        console.log('SimpleVegetationRenderer: Created tree geometry');
+        console.log('SimpleVegetationRenderer: Created detailed tree geometry');
         console.log('- Vertices:', vertices.length / 8, 'vertices'); // 8 floats per vertex
         console.log('- Indices:', indices.length, 'indices');
         console.log('- Triangles:', indices.length / 3, 'triangles');
-        console.log('- First few vertices:', vertices.slice(0, 24)); // First 3 vertices
-        console.log('- First few indices:', indices.slice(0, 12)); // First 4 triangles
+        console.log('- Trunk layers:', trunkLayers + 1);
+        console.log('- Crown layers:', crownLayers + 1);
+        console.log('- Branches:', branchCount);
+        console.log('- Segments per layer:', segments);
     }
 
     /**
