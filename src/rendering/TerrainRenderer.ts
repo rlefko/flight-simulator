@@ -1189,8 +1189,8 @@ export class TerrainRenderer {
                 wetlandColor = mix(wetlandColor, waterSurface, standingWater * 0.3);
                 
                 // Algae and microbial growth
-                let algaeGrowth = smoothstep(0.5, 0.8, biologicalActivity) * uniforms.precipitationFactor;
-                wetlandColor = mix(wetlandColor, algaeGrowth, algaeGrowth * 0.2);
+                let algaeGrowthFactor = smoothstep(0.5, 0.8, biologicalActivity) * uniforms.precipitationFactor;
+                wetlandColor = mix(wetlandColor, algaeGrowth, algaeGrowthFactor * 0.2);
                 
                 return clamp(wetlandColor, vec3<f32>(0.0), vec3<f32>(1.0));
             }
@@ -1548,14 +1548,23 @@ export class TerrainRenderer {
                 meshData.vertices.length / 3
         );
         let offset = 0;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        let totalY = 0;
 
         // Interleave vertex data: position, normal, uv, materialId
         const vertexCount = meshData.vertices.length / 3;
         for (let i = 0; i < vertexCount; i++) {
             // Position
             vertexData[offset++] = meshData.vertices[i * 3];
-            vertexData[offset++] = meshData.vertices[i * 3 + 1];
+            const yPos = meshData.vertices[i * 3 + 1];
+            vertexData[offset++] = yPos;
             vertexData[offset++] = meshData.vertices[i * 3 + 2];
+
+            // Track Y statistics
+            minY = Math.min(minY, yPos);
+            maxY = Math.max(maxY, yPos);
+            totalY += yPos;
 
             // Normal
             vertexData[offset++] = meshData.normals[i * 3];
@@ -1570,6 +1579,16 @@ export class TerrainRenderer {
             const materialId = tile.terrainData?.materials ? tile.terrainData.materials[i] || 2 : 2; // Default to grassland
             vertexData[offset++] = materialId;
         }
+
+        // Debug logging for TerrainRenderer
+        const avgY = totalY / vertexCount;
+        const yRange = maxY - minY;
+        console.log(`TerrainRenderer.createTerrainMesh DEBUG for tile ${tile.id}:`);
+        console.log(
+            `  Input mesh Y range: [${minY.toFixed(2)}, ${maxY.toFixed(2)}] (range: ${yRange.toFixed(2)})`
+        );
+        console.log(`  Average Y: ${avgY.toFixed(2)}`);
+        console.log(`  Vertex count: ${vertexCount}, Buffer size: ${vertexData.length} floats`);
 
         const vertexBuffer = this.device.createBuffer({
             label: `Terrain Vertex Buffer ${tile.id}`,
@@ -1661,6 +1680,7 @@ export class TerrainRenderer {
             // Shadow resources are in a separate bind group (group 3)
 
             // Create model matrix for this tile
+            // Only translate X and Z - let mesh vertices define their own Y heights
             const modelMatrix = new Matrix4();
             modelMatrix.makeTranslation(tile.worldBounds.minX, 0, tile.worldBounds.minZ);
 
