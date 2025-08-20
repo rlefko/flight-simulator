@@ -132,12 +132,22 @@ export class TerrainMesh {
                 const z = i * step;
 
                 // Sample height from heightmap with bilinear interpolation
-                const height = TerrainMesh.sampleHeightmap(
+                let height = TerrainMesh.sampleHeightmap(
                     terrainData.heightmap,
                     heightmapSize,
                     j * heightmapStep,
                     i * heightmapStep
                 );
+
+                // DEBUG: Fallback for flat terrain - use sine wave pattern
+                if (Math.abs(height) < 0.1) {
+                    height = Math.sin(x * 0.01) * 500 + Math.cos(z * 0.01) * 300;
+                    if (i < 2 && j < 2) {
+                        console.log(
+                            `  DEBUG FALLBACK: Using sine wave height ${height.toFixed(2)} at (${x}, ${z})`
+                        );
+                    }
+                }
 
                 // Debug first few height samples
                 if (i < 2 && j < 2) {

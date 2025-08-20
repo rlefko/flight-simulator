@@ -210,11 +210,11 @@ export class PhotorealisticHeightmapGenerator {
         const landMask = Math.max(0, continentalNoise + 0.15); // Favor slightly more land
 
         if (landMask > 0) {
-            // Land elevation calculation
-            elevation += regionalNoise * 400; // Regional variations up to 400m
-            elevation += Math.max(0, mountainNoise) * 800; // Mountains up to 800m additional
-            elevation += hillNoise * 150; // Hills up to 150m
-            elevation += detailNoise * 20; // Surface detail up to 20m
+            // Land elevation calculation - INCREASED AMPLITUDES FOR VISIBLE TERRAIN
+            elevation += regionalNoise * 4000; // Regional variations up to 4000m (was 400)
+            elevation += Math.max(0, mountainNoise) * 8000; // Mountains up to 8000m additional (was 800)
+            elevation += hillNoise * 1500; // Hills up to 1500m (was 150)
+            elevation += detailNoise * 200; // Surface detail up to 200m (was 20)
 
             // Apply land mask to ensure gradual transition to sea level
             elevation *= landMask;
@@ -227,8 +227,11 @@ export class PhotorealisticHeightmapGenerator {
             elevation = -oceanDepth * 200; // Ocean depths up to -200m
         }
 
+        // DEBUG: Force visible elevation to ensure terrain is not flat
+        elevation = elevation * 5 + 500; // DEBUG: Force visible elevation
+
         // Clamp to realistic values with strict sea level adherence
-        return Math.max(-500, Math.min(3000, elevation));
+        return Math.max(-500, Math.min(15000, elevation)); // Increased max to 15000 for debug
     }
 
     /**
