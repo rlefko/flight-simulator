@@ -277,16 +277,31 @@ export class VegetationGenerator {
                     `VegetationGenerator: Generating ${targetTreeCount} trees of type ${config.type} for biome ${biomeId} in ${tileAreaKm2.toFixed(2)}km² tile`
                 );
 
-                // Use Poisson disk sampling for natural distribution
-                const minDistance = Math.sqrt(1000000 / config.density) * 0.5; // Minimum spacing between trees
+                // Use Poisson disk sampling for natural distribution with improved randomness
+                const baseMinDistance = Math.sqrt(1000000 / config.density);
+                // Add randomness to minimum distance to prevent regular patterns
+                const distanceVariation =
+                    0.3 + this.seededRandom(worldX, worldZ, this.seed + biomeId) * 0.4; // 30%-70% variation
+                const minDistance = baseMinDistance * distanceVariation;
+
+                // Add spatial offset to break grid alignment
+                const spatialOffsetX =
+                    this.seededRandom(worldX, worldZ, this.seed + biomeId * 1000 + 1) *
+                    minDistance *
+                    0.5;
+                const spatialOffsetZ =
+                    this.seededRandom(worldX, worldZ, this.seed + biomeId * 1000 + 2) *
+                    minDistance *
+                    0.5;
+
                 const samples = this.generatePoissonDiskSamples(
                     tileSize,
                     tileSize,
                     minDistance,
-                    targetTreeCount * 2, // Generate extra samples to filter
-                    worldX,
-                    worldZ,
-                    this.seed + biomeId * 1000
+                    targetTreeCount * 3, // Generate more samples for better coverage
+                    worldX + spatialOffsetX,
+                    worldZ + spatialOffsetZ,
+                    this.seed + biomeId * 1000 + Math.floor(worldX / 100) + Math.floor(worldZ / 100) // More spatial variation
                 );
 
                 let placedTrees = 0;
@@ -310,16 +325,19 @@ export class VegetationGenerator {
                     // Check if this location is suitable for this tree type
                     if (!this.isValidTreeLocation(config, terrainSample, biomeId)) continue;
 
-                    // Check forest density using noise for natural clustering - increased placement chance
+                    // Check forest density using enhanced noise for natural clustering
                     const forestDensity = this.getForestDensity(worldPosX, worldPosZ, biomeId);
                     const placementRandom = this.seededRandom(
-                        worldPosX,
-                        worldPosZ,
-                        this.seed + 1000
+                        worldPosX + 0.1,
+                        worldPosZ + 0.1,
+                        this.seed + 1000 + Math.floor(worldPosX * 0.01) // Add micro-spatial variation
                     );
 
-                    // Greatly increased chance of tree placement - threshold reduced
-                    if (placementRandom > forestDensity * 0.3) continue;
+                    // Use adaptive threshold based on forest density with natural variation
+                    const adaptiveThreshold = 0.2 + forestDensity * 0.5; // Dynamic threshold 0.2-0.7
+                    const naturalVariation =
+                        this.fractalNoise(worldPosX * 0.02, worldPosZ * 0.02, 2) * 0.1;
+                    if (placementRandom > adaptiveThreshold + naturalVariation) continue;
 
                     // Create tree instance with proper height sampling
                     const instance = this.createTreeInstance(
@@ -333,8 +351,9 @@ export class VegetationGenerator {
                     instances.push(instance);
                     placedTrees++;
 
-                    // Add cluster of trees if configured
-                    if (placementRandom < config.clusterProbability) {
+                    // Add cluster of trees if configured with enhanced natural clustering
+                    const clusterChance = config.clusterProbability * (0.8 + forestDensity * 0.4);
+                    if (placementRandom < clusterChance) {
                         const clusterInstances = this.generateTreeCluster(
                             config,
                             worldPosX,
@@ -343,7 +362,8 @@ export class VegetationGenerator {
                             terrainData,
                             tileSize,
                             resolution,
-                            placementRandom
+                            placementRandom,
+                            forestDensity
                         );
                         instances.push(...clusterInstances);
                     }
@@ -367,16 +387,34 @@ export class VegetationGenerator {
                     `VegetationGenerator: Generating ${targetGrassCount} grass patches of type ${config.type} for biome ${biomeId}`
                 );
 
-                // Use larger spacing for grass patches
-                const minDistance = Math.sqrt(1000000 / config.density) * 0.8;
+                // Use varied spacing for grass patches to prevent grid patterns
+                const baseMinDistance = Math.sqrt(1000000 / config.density);
+                const distanceVariation =
+                    0.6 + this.seededRandom(worldX, worldZ, this.seed + biomeId * 3000) * 0.4;
+                const minDistance = baseMinDistance * distanceVariation;
+
+                // Add spatial variation for grass placement
+                const grassOffsetX =
+                    this.seededRandom(worldX, worldZ, this.seed + biomeId * 3000 + 1) *
+                    minDistance *
+                    0.3;
+                const grassOffsetZ =
+                    this.seededRandom(worldX, worldZ, this.seed + biomeId * 3000 + 2) *
+                    minDistance *
+                    0.3;
+
                 const samples = this.generatePoissonDiskSamples(
                     tileSize,
                     tileSize,
                     minDistance,
-                    targetGrassCount * 1.5,
-                    worldX,
-                    worldZ,
-                    this.seed + biomeId * 2000 + 1000 // Different seed for grass
+                    targetGrassCount * 2, // Generate more samples for better coverage
+                    worldX + grassOffsetX,
+                    worldZ + grassOffsetZ,
+                    this.seed +
+                        biomeId * 2000 +
+                        1000 +
+                        Math.floor(worldX / 50) +
+                        Math.floor(worldZ / 50)
                 );
 
                 let placedGrass = 0;
@@ -530,9 +568,27 @@ export class VegetationGenerator {
             return rng / 4294967296;
         };
 
-        // Start with a random initial point
-        const initial = new Vector3(random() * width, 0, random() * height);
-        this.addSampleToGrid(initial, grid, cellSize, active, samples);
+        // Start with multiple random initial points for better coverage
+        const numInitialPoints = Math.min(3, Math.max(1, Math.floor(maxSamples / 50)));
+        for (let i = 0; i < numInitialPoints; i++) {
+            const initial = new Vector3(random() * width, 0, random() * height);
+
+            // Check if initial point conflicts with existing ones
+            let validInitial = true;
+            for (const existing of samples) {
+                const dist = Math.sqrt(
+                    (initial.x - existing.x) ** 2 + (initial.z - existing.z) ** 2
+                );
+                if (dist < minDistance) {
+                    validInitial = false;
+                    break;
+                }
+            }
+
+            if (validInitial) {
+                this.addSampleToGrid(initial, grid, cellSize, active, samples);
+            }
+        }
 
         // Generate samples around existing points
         while (active.length > 0 && samples.length < maxSamples) {
@@ -540,8 +596,9 @@ export class VegetationGenerator {
             const point = active[randomIndex];
             let found = false;
 
-            // Try to find a valid point around the selected point
-            for (let i = 0; i < 30; i++) {
+            // Try to find a valid point around the selected point with more attempts for better coverage
+            const attempts = 50; // Increased attempts for better coverage
+            for (let i = 0; i < attempts; i++) {
                 const candidate = this.generatePointAround(point, minDistance, random);
                 if (this.isValidSample(candidate, width, height, minDistance, grid, cellSize)) {
                     this.addSampleToGrid(candidate, grid, cellSize, active, samples);
@@ -580,20 +637,30 @@ export class VegetationGenerator {
     }
 
     /**
-     * Generate point around existing point for Poisson disk sampling
+     * Generate point around existing point for Poisson disk sampling with improved distribution
      */
     private generatePointAround(
         center: Vector3,
         minDistance: number,
         random: () => number
     ): Vector3 {
+        // Use more varied distance distribution to prevent regular patterns
         const angle = random() * Math.PI * 2;
-        const distance = minDistance * (1 + random());
+
+        // Non-linear distance distribution for more natural clustering
+        const r1 = random();
+        const r2 = random();
+        const distanceMultiplier = 1 + r1 * r1 * 2; // Quadratic distribution favors closer placement
+        const distance = minDistance * distanceMultiplier;
+
+        // Add slight perturbation to break perfect circles
+        const perturbation = (random() - 0.5) * minDistance * 0.1;
+        const finalDistance = distance + perturbation;
 
         return new Vector3(
-            center.x + Math.cos(angle) * distance,
+            center.x + Math.cos(angle) * finalDistance,
             0,
-            center.z + Math.sin(angle) * distance
+            center.z + Math.sin(angle) * finalDistance
         );
     }
 
@@ -815,7 +882,7 @@ export class VegetationGenerator {
     }
 
     /**
-     * Generate tree cluster around a main tree
+     * Generate tree cluster around a main tree with natural distribution
      */
     private generateTreeCluster(
         config: TreeConfig,
@@ -825,18 +892,54 @@ export class VegetationGenerator {
         terrainData: TerrainData,
         tileSize: number,
         resolution: number,
-        randomSeed: number
+        randomSeed: number,
+        forestDensity: number = 0.5
     ) {
         const instances = [];
-        const clusterSize = 3 + Math.floor(randomSeed * 4); // 3-6 trees in cluster
-        const clusterRadius = 8 + randomSeed * 12; // 8-20 meter cluster radius
 
+        // Dynamic cluster size based on forest density and tree type
+        const baseClusterSize = config.type === VegetationType.PINE_TREE ? 4 : 3; // Pines cluster more
+        const densityMultiplier = 0.5 + forestDensity * 1.5; // More trees in denser forest areas
+        const clusterSize =
+            Math.floor(baseClusterSize * densityMultiplier) + Math.floor(randomSeed * 3);
+
+        // Variable cluster radius based on tree type and terrain
+        const baseRadius =
+            config.type === VegetationType.OAK_TREE
+                ? 15
+                : config.type === VegetationType.PINE_TREE
+                  ? 20
+                  : 10;
+        const clusterRadius = baseRadius * (0.7 + randomSeed * 0.6); // 70%-130% variation
+
+        // Generate trees with more natural positioning
         for (let i = 0; i < clusterSize; i++) {
-            const angle = (i / clusterSize) * Math.PI * 2 + randomSeed * Math.PI;
-            const distance = clusterRadius * (0.4 + randomSeed * 0.6);
+            // Use multiple random factors for more natural placement
+            const angleRandom1 = this.seededRandom(centerX, centerZ, this.seed + i * 100);
+            const angleRandom2 = this.seededRandom(centerX + i, centerZ + i, this.seed + i * 200);
+            const distanceRandom = this.seededRandom(
+                centerX * 1.1,
+                centerZ * 1.1,
+                this.seed + i * 300
+            );
 
-            const treeX = centerX + Math.cos(angle) * distance;
-            const treeZ = centerZ + Math.sin(angle) * distance;
+            // Non-uniform angular distribution for more natural clustering
+            const baseAngle = (i / clusterSize) * Math.PI * 2;
+            const angleVariation = (angleRandom1 - 0.5) * Math.PI * 0.8; // Up to ±72° variation
+            const angle = baseAngle + angleVariation + angleRandom2 * Math.PI * 0.3;
+
+            // Non-linear distance distribution (some trees closer, some farther)
+            const distanceFactor = distanceRandom * distanceRandom; // Quadratic distribution
+            const distance = clusterRadius * (0.3 + distanceFactor * 0.7);
+
+            // Add slight micro-positioning randomness
+            const microX =
+                (this.seededRandom(centerX + i * 0.1, centerZ, this.seed + i * 400) - 0.5) * 2;
+            const microZ =
+                (this.seededRandom(centerX, centerZ + i * 0.1, this.seed + i * 500) - 0.5) * 2;
+
+            const treeX = centerX + Math.cos(angle) * distance + microX;
+            const treeZ = centerZ + Math.sin(angle) * distance + microZ;
 
             // Check if cluster tree is within tile bounds
             const localX = treeX - (centerX - (centerX % tileSize));
@@ -855,19 +958,26 @@ export class VegetationGenerator {
 
             if (!clusterSample || clusterSample.isWater) continue;
 
-            // Create cluster tree instance (slightly smaller)
+            // Create cluster tree instance with natural size variation
+            const treeVariation = this.seededRandom(treeX, treeZ, this.seed + i * 600);
+            const sizeMultiplier = 0.7 + treeVariation * 0.6; // 70%-130% size variation
+
+            // Age variation - some trees in cluster are younger/smaller
+            const ageVariation = this.seededRandom(treeX * 1.2, treeZ * 1.2, this.seed + i * 700);
+            const ageFactor = 0.6 + ageVariation * 0.8; // Some trees are significantly smaller
+
             const instance = this.createTreeInstance(
                 {
                     ...config,
-                    minHeight: config.minHeight * 0.8,
-                    maxHeight: config.maxHeight * 0.9,
-                    minRadius: config.minRadius * 0.8,
-                    maxRadius: config.maxRadius * 0.9,
+                    minHeight: config.minHeight * sizeMultiplier * ageFactor,
+                    maxHeight: config.maxHeight * sizeMultiplier * ageFactor,
+                    minRadius: config.minRadius * sizeMultiplier * ageFactor,
+                    maxRadius: config.maxRadius * sizeMultiplier * ageFactor,
                 },
                 treeX,
                 clusterSample.elevation,
                 treeZ,
-                treeX + treeZ + i * 1000 // Unique seed for each cluster tree
+                Math.floor(treeX * 1000) + Math.floor(treeZ * 1000) + i * 1000 // More deterministic seed
             );
 
             instances.push(instance);
@@ -885,76 +995,141 @@ export class VegetationGenerator {
             return 0;
         }
 
-        // Use multiple noise scales for natural clustering patterns
-        const largeScaleNoise = this.fractalNoise(worldX * 0.0003, worldZ * 0.0003, 4); // Large forest areas (3km scale)
-        const mediumScaleNoise = this.fractalNoise(worldX * 0.0015, worldZ * 0.0015, 3); // Medium clusters (700m scale)
-        const smallScaleNoise = this.fractalNoise(worldX * 0.008, worldZ * 0.008, 2); // Small clearings (125m scale)
-        const microScaleNoise = this.fractalNoise(worldX * 0.04, worldZ * 0.04, 2); // Micro variations (25m scale)
+        // Use multiple noise scales for natural clustering patterns with improved frequencies
+        const largeScaleNoise = this.fractalNoise(worldX * 0.0002, worldZ * 0.0002, 5); // Large forest areas (5km scale)
+        const mediumScaleNoise = this.fractalNoise(worldX * 0.001, worldZ * 0.001, 4); // Medium clusters (1km scale)
+        const smallScaleNoise = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 3); // Small clearings (200m scale)
+        const microScaleNoise = this.fractalNoise(worldX * 0.02, worldZ * 0.02, 2); // Micro variations (50m scale)
+        const detailNoise = this.fractalNoise(worldX * 0.1, worldZ * 0.1, 2); // Fine detail (10m scale)
 
-        // Combine noise layers with realistic weightings
+        // Combine noise layers with more natural weightings
         let density =
-            largeScaleNoise * 0.5 +
+            largeScaleNoise * 0.4 +
             mediumScaleNoise * 0.25 +
-            smallScaleNoise * 0.15 +
-            microScaleNoise * 0.1;
+            smallScaleNoise * 0.2 +
+            microScaleNoise * 0.1 +
+            detailNoise * 0.05;
 
         // Normalize to 0-1 range
         density = (density + 1.0) * 0.5;
 
-        // Apply biome-specific clustering patterns
+        // Apply biome-specific clustering patterns with enhanced naturalism
         switch (biomeId) {
-            case 3: // Forest biome - dense with clearings
-                density = Math.max(0.7, density); // Increased minimum forest coverage
-                // Add natural clearings using additional noise
-                const clearingNoise = this.fractalNoise(worldX * 0.001, worldZ * 0.001, 2);
-                if (clearingNoise < -0.6) {
-                    density *= 0.3; // Create natural clearings, but less aggressive
+            case 3: // Forest biome - dense with natural clearings and edge effects
+                density = Math.max(0.5, density * 1.2); // Base forest coverage
+
+                // Create natural clearings with varied sizes
+                const clearingNoise = this.fractalNoise(worldX * 0.0008, worldZ * 0.0008, 3);
+                const clearingSize = this.fractalNoise(worldX * 0.002, worldZ * 0.002, 2);
+
+                if (clearingNoise < -0.4 && clearingSize < -0.2) {
+                    density *= 0.1; // Large clearings
+                } else if (clearingNoise < -0.2) {
+                    density *= 0.4; // Small clearings
+                }
+
+                // Add forest edge effects
+                const edgeNoise = this.fractalNoise(worldX * 0.01, worldZ * 0.01, 2);
+                density *= 0.7 + edgeNoise * 0.3; // Natural density variation
+                break;
+
+            case 2: // Grassland - scattered copses and individual trees
+                density *= 0.3;
+
+                // Create copses (small groups of trees) with realistic distribution
+                const copseNoise = this.fractalNoise(worldX * 0.001, worldZ * 0.001, 4);
+                const copseDetail = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 2);
+
+                if (copseNoise > 0.3 && copseDetail > 0.1) {
+                    density *= 8.0; // Dense copses
+                } else if (copseNoise > 0.0) {
+                    density *= 2.5; // Scattered trees near copses
+                }
+
+                // Individual scattered trees
+                const scatterNoise = this.fractalNoise(worldX * 0.02, worldZ * 0.02, 1);
+                if (scatterNoise > 0.6) {
+                    density = Math.max(density, 0.4); // Isolated trees
                 }
                 break;
 
-            case 2: // Grassland - scattered trees in groups
-                density *= 0.4; // Increased from 0.25
-                // Create tree groves using clustered noise
-                const groveNoise = this.fractalNoise(worldX * 0.002, worldZ * 0.002, 3);
-                if (groveNoise > 0.2) {
-                    // Lowered threshold
-                    density *= 4.0; // Boost density in grove areas
-                }
-                break;
+            case 5: // Mountain - altitude and aspect dependent
+                density *= 0.6;
 
-            case 5: // Mountain - elevation and slope dependent
-                density *= 0.8; // Increased from 0.6
-                // Simulate treeline effects (less dense at higher altitudes)
-                const elevationFactor = Math.max(0, 1.0 - worldZ * 0.0001); // Rough elevation proxy
+                // Simulate slope aspect effects (north vs south facing)
+                const aspectNoise = this.fractalNoise(worldX * 0.0005, worldZ * 0.0005, 2);
+                const slopeVariation = this.fractalNoise(worldX * 0.01, worldZ * 0.01, 3);
+
+                // North-facing slopes (cooler, more trees)
+                if (aspectNoise > 0.2) {
+                    density *= 1.5 + slopeVariation * 0.3;
+                } else {
+                    density *= 0.8 + slopeVariation * 0.4;
+                }
+
+                // Treeline effects with natural variation
+                const elevationFactor = Math.max(0.1, 1.0 - Math.abs(worldZ) * 0.0001);
                 density *= elevationFactor;
                 break;
 
-            case 4: // Desert - very sparse, oasis-like clustering
-                density *= 0.06; // Doubled from 0.03
-                // Create rare oasis-like clusters
-                const oasisNoise = this.fractalNoise(worldX * 0.0008, worldZ * 0.0008, 2);
-                if (oasisNoise > 0.4) {
-                    // Lowered threshold
-                    density *= 6.0; // Dense vegetation near water sources
+            case 4: // Desert - oasis-like clustering with realistic spacing
+                density *= 0.05;
+
+                // Create sparse oasis-like vegetation clusters
+                const oasisNoise = this.fractalNoise(worldX * 0.0003, worldZ * 0.0003, 4);
+                const oasisDetail = this.fractalNoise(worldX * 0.003, worldZ * 0.003, 2);
+
+                if (oasisNoise > 0.5 && oasisDetail > 0.3) {
+                    density *= 15.0; // Dense oasis vegetation
+                } else if (oasisNoise > 0.2) {
+                    density *= 3.0; // Scattered desert vegetation
+                }
+
+                // Very sparse individual plants
+                const sparsePlants = this.fractalNoise(worldX * 0.05, worldZ * 0.05, 1);
+                if (sparsePlants > 0.8) {
+                    density = Math.max(density, 0.1);
                 }
                 break;
 
-            case 1: // Beach - sparse coastal vegetation
-                density *= 0.25; // Increased from 0.15
-                // Denser vegetation away from water
-                const coastalNoise = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 2);
-                density *= 0.5 + coastalNoise * 0.5;
+            case 1: // Beach - coastal gradient effects
+                density *= 0.2;
+
+                // Vegetation density increases inland
+                const coastalGradient = this.fractalNoise(worldX * 0.002, worldZ * 0.002, 3);
+                const distanceFromWater = this.fractalNoise(worldX * 0.01, worldZ * 0.01, 2);
+
+                density *= 0.3 + Math.max(0, coastalGradient * 0.7 + distanceFromWater * 0.5);
+
+                // Dune vegetation clusters
+                const duneNoise = this.fractalNoise(worldX * 0.005, worldZ * 0.005, 2);
+                if (duneNoise > 0.4) {
+                    density *= 2.0;
+                }
                 break;
 
             default:
-                density *= 0.2; // Doubled default coverage
+                density *= 0.15;
+                // Add some natural clustering even in undefined biomes
+                const defaultCluster = this.fractalNoise(worldX * 0.003, worldZ * 0.003, 3);
+                if (defaultCluster > 0.3) {
+                    density *= 2.0;
+                }
         }
 
-        // Add some randomness to prevent overly regular patterns
-        const randomFactor = this.seededRandom(worldX, worldZ, this.seed + 5000);
-        density *= 0.8 + randomFactor * 0.4; // ±20% random variation
+        // Add multiple layers of randomness to prevent overly regular patterns
+        const randomFactor1 = this.seededRandom(worldX + 0.5, worldZ + 0.5, this.seed + 5000);
+        const randomFactor2 = this.seededRandom(worldX * 1.1, worldZ * 1.1, this.seed + 5001);
+        const microRandomness = this.fractalNoise(worldX * 0.3, worldZ * 0.3, 1) * 0.1;
 
-        return Math.max(0, Math.min(1, density));
+        // Combine different scales of randomness
+        const combinedRandomness =
+            randomFactor1 * 0.5 + randomFactor2 * 0.3 + microRandomness * 0.2;
+
+        density *= 0.7 + combinedRandomness * 0.6; // ±30% random variation with natural clustering
+
+        // Ensure density stays in valid range but allow for sparse and dense areas
+        return Math.max(0, Math.min(1.2, density)); // Allow slight overdensity for natural clustering
     }
 
     /**
