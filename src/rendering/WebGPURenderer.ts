@@ -114,6 +114,7 @@ export class WebGPURenderer {
     private grassClusters: Map<string, GrassCluster[]> = new Map();
     private vegetationSystem: any = null; // Will be set by external system
     private useSimpleRenderers: boolean = true; // Use simple renderers for stability
+    private grassGenerated: boolean = false; // Track if grass has been generated
 
     constructor(canvas: HTMLCanvasElement, eventBus: EventBus) {
         this.canvas = canvas;
@@ -299,9 +300,9 @@ export class WebGPURenderer {
             this.simpleVegetationRenderer = new SimpleVegetationRenderer(this.device);
             await this.simpleVegetationRenderer.initialize();
 
-            // Temporarily disable grass renderer to avoid pipeline errors
-            // this.simpleGrassRenderer = new SimpleGrassRenderer(this.device);
-            // await this.simpleGrassRenderer.initialize();
+            // Initialize simple grass renderer
+            this.simpleGrassRenderer = new SimpleGrassRenderer(this.device);
+            await this.simpleGrassRenderer.initialize();
 
             console.log('WebGPURenderer: Using simplified renderers for stability');
         } else {
@@ -816,7 +817,33 @@ export class WebGPURenderer {
                         }
 
                         // Render grass for ground cover
-                        if (
+                        if (this.useSimpleRenderers && this.simpleGrassRenderer) {
+                            const grassStartTime = performance.now();
+
+                            // Use simple grass renderer - only generate once per tile
+                            if (this.terrainTiles.length > 0) {
+                                // Check if grass has already been generated for this tile set
+                                if (!this.grassGenerated) {
+                                    const firstTile = this.terrainTiles[0];
+                                    this.simpleGrassRenderer.generateGrassInstances(
+                                        firstTile.worldBounds,
+                                        15000 // Increased density for better coverage
+                                    );
+                                    this.grassGenerated = true;
+                                    console.log(
+                                        'SimpleGrassRenderer: Generated grass instances for terrain'
+                                    );
+                                }
+
+                                this.simpleGrassRenderer.render(
+                                    renderPass,
+                                    this.camera,
+                                    performance.now() / 1000
+                                );
+                            }
+
+                            this.renderStats.renderTime += performance.now() - grassStartTime;
+                        } else if (
                             !this.useSimpleRenderers &&
                             this.grassRenderer &&
                             this.grassDistribution
@@ -876,25 +903,6 @@ export class WebGPURenderer {
 
                             // Render grass
                             this.grassRenderer.render(renderPass, this.camera);
-
-                            this.renderStats.renderTime += performance.now() - grassStartTime;
-                        } else if (this.useSimpleRenderers && this.simpleGrassRenderer) {
-                            const grassStartTime = performance.now();
-
-                            // Use simple grass renderer as fallback
-                            if (this.terrainTiles.length > 0) {
-                                const firstTile = this.terrainTiles[0];
-                                this.simpleGrassRenderer.generateGrassInstances(
-                                    firstTile.worldBounds,
-                                    5000
-                                );
-
-                                this.simpleGrassRenderer.render(
-                                    renderPass,
-                                    this.camera,
-                                    performance.now() / 1000
-                                );
-                            }
 
                             this.renderStats.renderTime += performance.now() - grassStartTime;
                         }

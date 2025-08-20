@@ -5,6 +5,8 @@ interface GrassInstance {
     position: Vector3;
     scale: number;
     rotation: number;
+    biomeType?: string;
+    colorVariation?: number;
 }
 
 /**
@@ -22,7 +24,7 @@ export class SimpleGrassRenderer {
     } | null = null;
     private instanceBuffer: GPUBuffer | null = null;
     private instanceCount: number = 0;
-    private maxInstances: number = 50000; // Much more grass for better coverage
+    private maxInstances: number = 100000; // Much more grass for better coverage
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -95,6 +97,7 @@ export class SimpleGrassRenderer {
                             { format: 'float32x3', offset: 0, shaderLocation: 3 }, // instance position
                             { format: 'float32', offset: 12, shaderLocation: 4 }, // scale
                             { format: 'float32', offset: 16, shaderLocation: 5 }, // rotation
+                            { format: 'float32', offset: 20, shaderLocation: 6 }, // color variation
                         ],
                     },
                 ],
@@ -160,6 +163,7 @@ export class SimpleGrassRenderer {
                 @location(3) instancePosition: vec3<f32>,
                 @location(4) scale: f32,
                 @location(5) rotation: f32,
+                @location(6) colorVariation: f32,
             }
 
             struct VertexOutput {
@@ -168,6 +172,7 @@ export class SimpleGrassRenderer {
                 @location(1) normal: vec3<f32>,
                 @location(2) color: vec3<f32>,
                 @location(3) alpha: f32,
+                @location(4) uv: vec2<f32>,
             }
 
             @vertex
@@ -198,23 +203,51 @@ export class SimpleGrassRenderer {
                 // Simple normal
                 output.normal = vec3<f32>(0.0, 1.0, 0.0);
                 
-                // Simple grass color
-                output.color = vec3<f32>(0.3, 0.7, 0.2);
-                output.alpha = 0.9;
+                // Biome-based grass color with variation
+                // Base colors for different grass types
+                let baseGreen = vec3<f32>(0.2, 0.6, 0.1);  // Forest grass
+                let dryGrass = vec3<f32>(0.5, 0.5, 0.2);   // Dry/desert grass
+                
+                // Mix colors based on color variation (acts as biome indicator)
+                let grassColor = mix(baseGreen, dryGrass, input.colorVariation);
+                
+                // Add some random variation per blade
+                let variation = sin(input.instancePosition.x * 0.1 + input.instancePosition.z * 0.1) * 0.1;
+                grassColor += vec3<f32>(variation * 0.1, variation * 0.2, variation * 0.05);
+                
+                // Make grass tips lighter/yellower
+                let heightFactor = input.position.y / 3.0; // Assuming max height is 3
+                grassColor = mix(grassColor, grassColor + vec3<f32>(0.2, 0.3, 0.0), heightFactor * 0.3);
+                
+                output.color = grassColor;
+                output.alpha = 0.85;
+                output.uv = input.uv;
                 
                 return output;
             }
 
             @fragment
             fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-                // Simple lighting
+                // Alpha test for grass blade edges (simulate grass shape)
+                let grassAlpha = input.alpha;
+                if (input.uv.x < 0.1 || input.uv.x > 0.9) {
+                    grassAlpha *= 0.3; // Make edges more transparent
+                }
+                
+                // Simple lighting with ambient
                 let lightDir = normalize(vec3<f32>(0.5, 1.0, 0.5));
-                let ndotl = max(dot(input.normal, lightDir), 0.5);
+                let ambient = 0.4;
+                let diffuse = max(dot(input.normal, lightDir), 0.0) * 0.6;
+                let lighting = ambient + diffuse;
                 
-                // Apply lighting
-                let finalColor = input.color * ndotl;
+                // Apply lighting to grass color
+                let finalColor = input.color * lighting;
                 
-                return vec4<f32>(finalColor, input.alpha);
+                // Add slight subsurface scattering effect for grass
+                let subsurface = max(dot(-lightDir, input.normal), 0.0) * 0.2;
+                finalColor += vec3<f32>(0.1, 0.3, 0.05) * subsurface;
+                
+                return vec4<f32>(finalColor, grassAlpha);
             }
         `;
     }
@@ -227,8 +260,8 @@ export class SimpleGrassRenderer {
         const indices: number[] = [];
 
         // Create a simple grass blade (two triangles forming a thin rectangle)
-        const height = 3.0;
-        const width = 0.3;
+        const height = 2.5;
+        const width = 0.15; // Thinner blades for more realistic look
 
         // Grass blade vertices (4 vertices for a quad)
         // Bottom left
@@ -299,10 +332,15 @@ export class SimpleGrassRenderer {
                 terrainBounds.minZ + Math.random() * (terrainBounds.maxZ - terrainBounds.minZ);
             const y = 0; // Assume grass grows at ground level
 
+            // Determine biome type based on position (simple noise-based approach)
+            const biomeNoise = (Math.sin(x * 0.01) + Math.cos(z * 0.01)) * 0.5 + 0.5;
+            const colorVariation = Math.random() * 0.3 + biomeNoise * 0.7; // 0.0 = green, 1.0 = dry
+
             instances.push({
                 position: new Vector3(x, y, z),
-                scale: 0.5 + Math.random() * 1.0, // Random scale between 0.5 and 1.5
+                scale: 0.3 + Math.random() * 0.8, // Random scale between 0.3 and 1.1
                 rotation: Math.random() * Math.PI * 2, // Random rotation
+                colorVariation: colorVariation,
             });
         }
 
@@ -327,8 +365,10 @@ export class SimpleGrassRenderer {
             instanceData[offset++] = grass.scale;
             // Rotation
             instanceData[offset++] = grass.rotation;
+            // Color variation
+            instanceData[offset++] = grass.colorVariation || 0.0;
             // Padding
-            offset += 3;
+            offset += 2;
         }
 
         this.device.queue.writeBuffer(this.instanceBuffer, 0, instanceData);
