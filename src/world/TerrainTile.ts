@@ -522,6 +522,19 @@ export class TerrainTile {
 
         // Update tile center Y coordinate
         this.center.y = avgElevation;
+
+        // Debug logging for terrain data
+        const elevationRange = maxElevation - minElevation;
+        console.log(`TerrainTile.updateMetadataFromTerrain DEBUG for tile ${this.id}:`);
+        console.log(`  Heightmap size: ${heights.length} values`);
+        console.log(
+            `  Elevation range: [${minElevation.toFixed(2)}, ${maxElevation.toFixed(2)}] (range: ${elevationRange.toFixed(2)})`
+        );
+        console.log(`  Average elevation: ${avgElevation.toFixed(2)}`);
+        console.log(`  Roughness: ${this.metadata.roughness.toFixed(2)}`);
+        console.log(
+            `  Sample heights: [${heights[0].toFixed(2)}, ${heights[Math.floor(heights.length / 2)].toFixed(2)}, ${heights[heights.length - 1].toFixed(2)}]`
+        );
     }
 
     /**

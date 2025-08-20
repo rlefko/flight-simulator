@@ -109,6 +109,11 @@ export class PhotorealisticHeightmapGenerator {
         step: number,
         size: number
     ): void {
+        let minElevation = Infinity;
+        let maxElevation = -Infinity;
+        let totalElevation = 0;
+        let nonZeroCount = 0;
+
         // Generate base terrain using multi-octave Fractal Brownian Motion
         for (let i = 0; i < size; i++) {
             for (let j = 0; j < size; j++) {
@@ -121,8 +126,62 @@ export class PhotorealisticHeightmapGenerator {
 
                 // Ensure proper sea level adherence (0 meters)
                 heightmap[index] = baseElevation;
+
+                // Track statistics
+                minElevation = Math.min(minElevation, baseElevation);
+                maxElevation = Math.max(maxElevation, baseElevation);
+                totalElevation += baseElevation;
+                if (Math.abs(baseElevation) > 0.1) nonZeroCount++;
             }
         }
+
+        // Debug logging for heightmap generation
+        const avgElevation = totalElevation / (size * size);
+        console.log('PhotorealisticHeightmapGenerator.generateHeightmap DEBUG:');
+        console.log(`  World coordinates: (${worldX}, ${worldZ})`);
+        console.log(`  Size: ${size}x${size}, Step: ${step}`);
+        console.log(`  Elevation range: [${minElevation.toFixed(2)}, ${maxElevation.toFixed(2)}]`);
+        console.log(`  Average elevation: ${avgElevation.toFixed(2)}`);
+        console.log(
+            `  Non-zero values: ${nonZeroCount}/${size * size} (${((nonZeroCount / (size * size)) * 100).toFixed(1)}%)`
+        );
+        console.log(
+            `  Sample values: [${heightmap[0].toFixed(2)}, ${heightmap[Math.floor((size * size) / 2)].toFixed(2)}, ${heightmap[size * size - 1].toFixed(2)}]`
+        );
+    }
+
+    /**
+     * DEBUG: Test terrain generation with known coordinates
+     */
+    public debugTerrainGeneration(): void {
+        console.log('PhotorealisticHeightmapGenerator DEBUG TEST:');
+        const testCoords = [
+            { x: 0, z: 0 },
+            { x: 1000, z: 1000 },
+            { x: 5000, z: 5000 },
+            { x: 10000, z: 10000 },
+        ];
+
+        for (const coord of testCoords) {
+            const elevation = this.generateRealisticTerrain(coord.x, coord.z);
+            console.log(`  Coord (${coord.x}, ${coord.z}): elevation = ${elevation.toFixed(2)}m`);
+        }
+
+        // Test individual noise components
+        const testX = 1000,
+            testZ = 1000;
+        const continental = this.fbm(testX * 0.000005, testZ * 0.000005, 6, 2.0, 0.6);
+        const regional = this.fbm(testX * 0.00002, testZ * 0.00002, 5, 2.1, 0.55);
+        const mountain = this.ridgedNoise(testX * 0.00008, testZ * 0.00008, 4);
+        const hill = this.fbm(testX * 0.0003, testZ * 0.0003, 4, 2.0, 0.5);
+        const detail = this.fbm(testX * 0.002, testZ * 0.002, 3, 2.0, 0.4);
+
+        console.log(`  Noise components at (${testX}, ${testZ}):`);
+        console.log(`    Continental: ${continental.toFixed(4)}`);
+        console.log(`    Regional: ${regional.toFixed(4)}`);
+        console.log(`    Mountain: ${mountain.toFixed(4)}`);
+        console.log(`    Hill: ${hill.toFixed(4)}`);
+        console.log(`    Detail: ${detail.toFixed(4)}`);
     }
 
     /**

@@ -291,7 +291,7 @@ export class SimpleWaterRenderer {
                 let waveHeight = input.worldPos.y;
                 let foamThreshold = 0.6;
                 let foamFalloff = 0.4;
-                let foamIntensity = smoothstep(foamThreshold, foamThreshold + foamFalloff, waveHeight);
+                var foamIntensity = smoothstep(foamThreshold, foamThreshold + foamFalloff, waveHeight);
                 
                 // Add foam based on wave steepness
                 let normalSteepness = 1.0 - surfaceNormal.y;

@@ -163,6 +163,9 @@ export class TerrainGenerator {
         this.heightmapGenerator = new PhotorealisticHeightmapGenerator(this.config.seed);
         this.streaming = new TerrainStreaming(this.config.seed);
 
+        // DEBUG: Test heightmap generation
+        this.heightmapGenerator.debugTerrainGeneration();
+
         // Initialize with a smaller grid for better performance
         // Create a 3x3 grid of root tiles
         const gridSize = 3; // 3x3 grid for better performance
